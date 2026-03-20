@@ -1,0 +1,36 @@
+---
+description: Contexto del proyecto api-ayudas, modo aprendizaje y restricciones de edición
+alwaysApply: true
+---
+
+# Proyecto api-ayudas (interno)
+
+## Idioma
+
+- Responder siempre en **español**.
+
+## Modo aprendizaje y edición de código
+
+- El usuario está **aprendiendo**: cada paso debe ir acompañado de una **explicación breve del porqué** (qué problema resuelve, qué alternativa existía si aplica).
+- **No modificar archivos del repositorio** (no aplicar parches, no crear/editar/borrar archivos) **salvo que el usuario lo pida explícitamente**.
+- Por defecto: dar **instrucciones ordenadas** y el **código completo** en el chat para que el usuario lo copie, pegue o transcriba.
+- Si el usuario pide que edites tú el código, entonces sí puedes usar herramientas de edición.
+
+## Alcance del producto
+
+- Proyecto **interno** para valorar futura comercialización; no hace falta formalizar “entregables” de documentación externa, pero sí mantener el trabajo **organizado por bloques** (plan en repo, estado por bloque).
+- **Sin cuentas de usuario** ni autenticación de personas en esta fase.
+- **Alertas por email semanales** con **lista fija de destinatarios** y **filtros globales** (configuración única, no por usuario).
+- Integración con la API/documentación del BDNS: `https://www.pap.hacienda.gob.es/bdnstrans/GE/es/doc`.
+
+## Stack y despliegue
+
+- **Next.js** (React) con **TypeScript**.
+- **PostgreSQL** para persistencia (snapshots, historial de alertas, configuración).
+- **Docker** y **Docker Compose** desde el inicio para facilitar mover el entorno de desarrollo a servidor.
+- Secretos y URLs en **variables de entorno**, nunca en código versionado.
+
+## Arquitectura deseable
+
+- Capa **BFF** (API interna) que encapsule la API externa BDNS: el front no debe acoplar filtros directamente a detalles frágiles de la API pública.
+- Diseño pensado para que en el futuro se puedan añadir usuarios o multi-tenant **sin reescribir todo** (separación UI / dominio / integración).

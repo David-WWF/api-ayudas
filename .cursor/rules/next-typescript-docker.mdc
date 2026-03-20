@@ -1,0 +1,27 @@
+---
+description: Convenciones Next.js, TypeScript y Docker para api-ayudas
+globs: "**/*.{ts,tsx,js,jsx}"
+alwaysApply: false
+---
+
+# Convenciones técnicas
+
+## TypeScript
+
+- Preferir tipos explícitos en límites (API, props públicas); evitar `any` salvo justificación breve en comentario.
+- Manejar errores de red/API de forma visible en UI (estados loading / error / vacío).
+
+## Next.js
+
+- Usar **App Router** salvo que el proyecto ya esté en Pages Router por decisión documentada.
+- Llamadas a datos del BFF desde Server Components o route handlers según convenga; no exponer claves de email o DB al cliente.
+
+## Docker
+
+- Servicios definidos en Compose con nombres estables (`postgres`, `app`); volúmenes para datos de Postgres en desarrollo.
+- Documentar en README los comandos mínimos: `docker compose up`, variables necesarias.
+
+## Seguridad interna
+
+- Rate limiting básico en rutas que llamen a BDNS o envíen emails.
+- Validar entrada (filtros, emails) en el servidor antes de persistir o enviar.
