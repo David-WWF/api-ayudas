@@ -1,0 +1,41 @@
+services:
+  app:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: ayudas_app
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      NEXT_TELEMETRY_DISABLED: "1"
+      WATCHPACK_POLLING: "true"
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/ayudas
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      db:
+        condition: service_healthy
+    command: npm run dev
+
+  db:
+    image: public.ecr.aws/docker/library/postgres:16-alpine
+    container_name: ayudas_db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ayudas
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ayudas"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
