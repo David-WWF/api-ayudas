@@ -113,7 +113,7 @@ function normalizeRawToGrants(
       : null;
 
     return {
-      id: String(obj.id ?? numeroConvocatoria ?? `unknown-${page}-${idx}`),
+        id: String(numeroConvocatoria ?? obj.id ?? `unknown-${page}-${idx}`),
       title: typeof obj.descripcion === "string" ? obj.descripcion : "Sin título",
       organization: typeof obj.nivel2 === "string" ? obj.nivel2 : null,
       publicationDate:
