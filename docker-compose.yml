@@ -11,6 +11,10 @@ services:
       NEXT_TELEMETRY_DISABLED: "1"
       WATCHPACK_POLLING: "true"
       DATABASE_URL: postgresql://postgres:postgres@db:5432/ayudas
+      BDNS_SEARCH_ENDPOINT: https://www.pap.hacienda.gob.es/bdnstrans/api/convocatorias/busqueda
+      BDNS_TIMEOUT_MS: "12000"
+      BDNS_RETRIES: "2"
+      BDNS_DEBUG_SAMPLE: "false"
     volumes:
       - ./web:/app
       - /app/node_modules
