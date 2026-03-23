@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import styles from "./page.module.css";
 
 type GrantDetailResponse = {
@@ -14,6 +15,12 @@ type GrantDetailResponse = {
   error?: string;
 };
 
+function getBaseUrlFromHeaders(h: Headers): string {
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  return `${proto}://${host}`;
+}
+
 export default async function GrantDetailPage({
   params,
 }: {
@@ -21,7 +28,10 @@ export default async function GrantDetailPage({
 }) {
   const { id } = await params;
 
-  const res = await fetch(`http://localhost:3000/api/grants/${id}`, {
+  const h = await headers();
+  const baseUrl = getBaseUrlFromHeaders(h);
+
+  const res = await fetch(`${baseUrl}/api/grants/${id}`, {
     cache: "no-store",
   });
 

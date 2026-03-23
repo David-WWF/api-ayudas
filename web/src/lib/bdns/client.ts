@@ -17,32 +17,72 @@ export type GrantsSearchResult = {
   pageSize: number;
 };
 
+export type SearchGrantsParams = {
+  q?: string;
+  page: number;
+  pageSize: number;
+  fechaDesde?: string;
+  fechaHasta?: string;
+  tipoAdministracion?: string;
+  order?: string;
+  direccion?: "asc" | "desc";
+};
+
 function getEnvNumber(name: string, fallback: number): number {
   const value = process.env[name];
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function buildSearchUrl(
-  endpoint: string,
-  params: { q?: string; page: number; pageSize: number }
-): string {
+function toBdnsDate(value?: string): string | null {
+  if (!value) return null;
+
+  // Si viene de input type="date" -> YYYY-MM-DD
+  const isoMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) {
+    const [, year, month, day] = isoMatch;
+    return `${day}/${month}/${year}`;
+  }
+
+  // Si ya viene DD/MM/YYYY, lo dejamos pasar.
+  const esMatch = value.match(/^\d{2}\/\d{2}\/\d{4}$/);
+  if (esMatch) return value;
+
+  return null;
+}
+
+function buildSearchUrl(endpoint: string, params: SearchGrantsParams): string {
   const url = new URL(endpoint);
 
   // BDNS pagina desde 0, nuestra API expone page desde 1.
   const pageZeroBased = Math.max(0, params.page - 1);
 
   if (params.q) {
-    // BDNS usa "descripcion" para búsqueda textual.
     url.searchParams.set("descripcion", params.q);
     // 2 = alguna de las palabras (más flexible para texto libre).
     url.searchParams.set("descripcionTipoBusqueda", "2");
   }
 
+  if (params.order) {
+    url.searchParams.set("order", params.order);
+  }
+  
+  if (params.direccion) {
+    url.searchParams.set("direccion", params.direccion);
+  }
+
+  const fechaDesde = toBdnsDate(params.fechaDesde);
+  const fechaHasta = toBdnsDate(params.fechaHasta);
+
+  if (fechaDesde) url.searchParams.set("fechaDesde", fechaDesde);
+  if (fechaHasta) url.searchParams.set("fechaHasta", fechaHasta);
+
+  if (params.tipoAdministracion && ["C", "A", "L", "O"].includes(params.tipoAdministracion)) {
+    url.searchParams.set("tipoAdministracion", params.tipoAdministracion);
+  }
+
   url.searchParams.set("page", String(pageZeroBased));
   url.searchParams.set("pageSize", String(params.pageSize));
-
-  // Portal general.
   url.searchParams.set("vpd", "GE");
 
   return url.toString();
@@ -113,12 +153,11 @@ function normalizeRawToGrants(
       : null;
 
     return {
-        id: String(numeroConvocatoria ?? obj.id ?? `unknown-${page}-${idx}`),
+      id: String(numeroConvocatoria ?? obj.id ?? `unknown-${page}-${idx}`),
       title: typeof obj.descripcion === "string" ? obj.descripcion : "Sin título",
       organization: typeof obj.nivel2 === "string" ? obj.nivel2 : null,
       publicationDate:
         typeof obj.fechaRecepcion === "string" ? obj.fechaRecepcion : null,
-      // En este endpoint listado no viene fecha límite ni cuantía.
       deadlineDate: null,
       amount: null,
       sourceUrl,
@@ -128,11 +167,9 @@ function normalizeRawToGrants(
   return { items, total, page, pageSize };
 }
 
-export async function searchGrants(params: {
-  q?: string;
-  page: number;
-  pageSize: number;
-}): Promise<GrantsSearchResult> {
+export async function searchGrants(
+  params: SearchGrantsParams
+): Promise<GrantsSearchResult> {
   const endpoint = process.env.BDNS_SEARCH_ENDPOINT;
   if (!endpoint) {
     throw new Error("BDNS_SEARCH_ENDPOINT no está configurado");

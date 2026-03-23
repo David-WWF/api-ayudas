@@ -30,32 +30,82 @@
 
 .searchForm {
   display: flex;
+  flex-direction: column;
   gap: 10px;
   margin-bottom: 14px;
+  width: 100%;
 }
 
-.searchForm input {
-  flex: 1;
+.filtersGrid {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field label {
+  font-size: 13px;
+  color: #374151;
+  font-weight: 600;
+}
+
+.field input,
+.field select {
   height: 42px;
   border: 1px solid #d1d5db;
   border-radius: 10px;
   padding: 0 12px;
   font-size: 15px;
+  background: #ffffff;
+  color: #111827;
+}
+
+.field input[type="date"] {
+  color-scheme: light;
+}
+
+.field input[type="date"]::-webkit-calendar-picker-indicator {
+  opacity: 1;
+  cursor: pointer;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.actions button {
+  height: 42px;
+  border-radius: 10px;
+  padding: 0 14px;
+  cursor: pointer;
 }
 
 .searchForm button {
-  height: 42px;
   border: none;
-  border-radius: 10px;
-  padding: 0 14px;
   background: #111827;
-  color: #fff;
-  cursor: pointer;
+  color: #ffffff;
 }
 
 .searchForm button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.secondaryButton {
+  border: 1px solid #d1d5db !important;
+  background: #ffffff !important;
+  color: #111827 !important;
 }
 
 .meta {
@@ -93,7 +143,7 @@
   border: 1px solid #e5e7eb;
   border-radius: 12px;
   padding: 14px;
-  background: #fff;
+  background: #ffffff;
 }
 
 .card h2 {
@@ -119,6 +169,10 @@
   text-decoration: underline;
 }
 
+.cardActions {
+  margin-top: 8px;
+}
+
 .noLink {
   display: inline-block;
   margin-top: 8px;
@@ -135,7 +189,8 @@
   height: 40px;
   border: 1px solid #d1d5db;
   border-radius: 10px;
-  background: #fff;
+  background: #ffffff;
+  color: #111827;
   padding: 0 12px;
   cursor: pointer;
 }
@@ -143,6 +198,12 @@
 .pagination button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+@media (max-width: 900px) {
+  .filtersGrid {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 @media (max-width: 700px) {
@@ -153,43 +214,28 @@
   .meta {
     flex-direction: column;
   }
+}
 
-  .searchForm {
+@media (max-width: 600px) {
+  .filtersGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .actions {
     flex-direction: column;
+    align-items: stretch;
+  }
+
+  .actions button {
+    width: 100%;
   }
 }
 
-.searchForm input {
-  flex: 1;
-  height: 42px;
-  border: 1px solid #d1d5db;
-  border-radius: 10px;
-  padding: 0 12px;
-  font-size: 15px;
-  background: #ffffff;
-  color: #111827;
-}
-
-.pagination button {
-  height: 40px;
-  border: 1px solid #d1d5db;
-  border-radius: 10px;
-  background: #fff;
-  color: #111827; /* <-- clave */
-  padding: 0 12px;
-  cursor: pointer;
-}
-
-.searchForm button {
-  height: 42px;
-  border: none;
-  border-radius: 10px;
-  padding: 0 14px;
-  background: #111827;
-  color: #ffffff;
-  cursor: pointer;
-}
-
-.cardActions {
-  margin-top: 8px;
+.filtersGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+  width: 100%;
+  min-width: 0;
 }

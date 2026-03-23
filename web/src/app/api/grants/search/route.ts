@@ -14,9 +14,43 @@ export async function GET(request: NextRequest) {
   const q = searchParams.get("q") ?? undefined;
   const page = toPositiveInt(searchParams.get("page"), 1);
   const pageSize = toPositiveInt(searchParams.get("pageSize"), 20);
+  const fechaDesde = searchParams.get("fechaDesde") ?? undefined;
+  const fechaHasta = searchParams.get("fechaHasta") ?? undefined;
+  const tipoAdministracion = searchParams.get("tipoAdministracion") ?? undefined;
+
+  const orderRaw = searchParams.get("order") ?? undefined;
+  const allowedOrder = [
+    "numeroConvocatoria",
+    "mrr",
+    "nivel1",
+    "nivel2",
+    "nivel3",
+    "fechaRecepcion",
+    "descripcion",
+    "descripcionLeng",
+  ] as const;
+  const order =
+    orderRaw && (allowedOrder as readonly string[]).includes(orderRaw)
+      ? orderRaw
+      : undefined;
+
+  const direccionRaw = searchParams.get("direccion");
+  const direccion =
+    direccionRaw === "asc" || direccionRaw === "desc"
+      ? direccionRaw
+      : undefined;
 
   try {
-    const data = await searchGrants({ q, page, pageSize });
+    const data = await searchGrants({
+      q,
+      page,
+      pageSize,
+      fechaDesde,
+      fechaHasta,
+      tipoAdministracion,
+      order,
+      direccion,
+    });
 
     return NextResponse.json(
       {
