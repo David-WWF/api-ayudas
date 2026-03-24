@@ -76,6 +76,19 @@ flowchart LR
   - detecta novedades,
   - envía un email resumen a lista fija.
 
+## Diferenciación frente al portal BDNS (valor añadido)
+
+Para no replicar únicamente la consulta pública, se añade enfoque operativo interno:
+
+- **Perfil global persistente de interés**:
+  - un único perfil de filtros de negocio (texto, CCAA, administración, fechas),
+  - editable en panel interno para toda la organización.
+- **Vigilancia automática de novedades**:
+  - comparación semanal contra snapshot histórico,
+  - envío de solo convocatorias nuevas o relevantes (menos ruido).
+- **Resumen accionable interno**:
+  - email semanal con top resultados y enlaces directos al detalle interno.
+
 ## Modelo de datos ajustado (sin tabla de usuarios)
 
 Tablas mínimas sugeridas:
@@ -119,6 +132,10 @@ Tablas mínimas sugeridas:
   - editar filtros globales,
   - gestionar lista fija de destinatarios.
 - Guardado en PostgreSQL.
+- Incluir en la configuración global el **perfil persistente de interés**:
+  - texto objetivo,
+  - administración y CCAA,
+  - rango temporal base.
 
 ### Bloque 5 - Motor semanal de alertas
 
@@ -127,6 +144,9 @@ Tablas mínimas sugeridas:
 - Job semanal (cron) que consulta BDNS con filtros globales.
 - Detección de nuevas convocatorias respecto a `grants_snapshot`.
 - Registro en `alerts_history` y envío de email resumen.
+- El email prioriza valor operativo:
+  - destacar nuevas convocatorias relevantes para el perfil global,
+  - reducir ruido con deduplicación y resumen corto accionable.
 
 ### Bloque 6 - Hardening para uso interno
 

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import styles from "./page.module.css";
 
@@ -27,6 +26,36 @@ type GrantsResponse = {
 
 type RegionOption = { id: number; name: string };
 
+type GrantDetail = {
+  id: string;
+  title: string;
+  organization: string | null;
+  publicationDate: string | null;
+  description: string | null;
+  sourceUrl: string | null;
+};
+
+type GrantDetailResponse = {
+  ok: boolean;
+  data?: GrantDetail;
+  error?: string;
+};
+
+type GlobalFiltersResponse = {
+  ok: boolean;
+  data?: {
+    searchText: string;
+    tipoAdministracion: string | null;
+    regionId: number | null;
+    fechaDesde: string | null;
+    fechaHasta: string | null;
+    orderBy: string;
+    direccion: "asc" | "desc";
+    updatedAt: string | null;
+  };
+  error?: string;
+};
+
 const PAGE_SIZE = 10;
 
 export default function Home() {
@@ -51,8 +80,17 @@ export default function Home() {
   const [page, setPage] = useState(1);
   const [items, setItems] = useState<GrantItem[]>([]);
   const [total, setTotal] = useState(0);
+
   const [loading, setLoading] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
+  const [profileMessage, setProfileMessage] = useState<string | null>(null);
+
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [detailData, setDetailData] = useState<GrantDetail | null>(null);
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total]);
 
@@ -63,24 +101,86 @@ export default function Home() {
     async function loadRegions() {
       try {
         const res = await fetch("/api/catalogs/regions", { cache: "no-store" });
-        const json = (await res.json()) as { ok: boolean; data?: RegionOption[] };
+        const contentType = res.headers.get("content-type") ?? "";
+        if (!contentType.includes("application/json")) return;
 
+        const json = (await res.json()) as { ok: boolean; data?: RegionOption[] };
         if (!mounted) return;
+
         if (res.ok && json.ok && Array.isArray(json.data)) {
           setRegions(json.data);
         }
       } catch {
-        // Si falla el catálogo, no bloqueamos el buscador
+        // No bloquea la pantalla
       }
     }
 
-    loadRegions();
+    void loadRegions();
 
     return () => {
       mounted = false;
     };
   }, []);
 
+  // Carga perfil global persistido
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadGlobalFilters() {
+      try {
+        const res = await fetch("/api/settings/global-filters", { cache: "no-store" });
+        const contentType = res.headers.get("content-type") ?? "";
+        if (!contentType.includes("application/json")) return;
+
+        const json = (await res.json()) as GlobalFiltersResponse;
+        if (!mounted) return;
+        if (!res.ok || !json.ok || !json.data) return;
+
+        const data = json.data;
+
+        const nextQuery = data.searchText ?? "";
+        const nextTipoAdmin = data.tipoAdministracion ?? "";
+        const nextRegionId = typeof data.regionId === "number" ? data.regionId : "";
+        const nextFechaDesde = data.fechaDesde ?? "";
+        const nextFechaHasta = data.fechaHasta ?? "";
+        const nextOrder =
+          typeof data.orderBy === "string" && data.orderBy.length > 0
+            ? data.orderBy
+            : "fechaRecepcion";
+        const nextDireccion = data.direccion === "asc" ? "asc" : "desc";
+
+        // Input state
+        setQueryInput(nextQuery);
+        setTipoAdminInput(nextTipoAdmin);
+        setRegionIdInput(nextRegionId);
+        setFechaDesdeInput(nextFechaDesde);
+        setFechaHastaInput(nextFechaHasta);
+        setOrderInput(nextOrder);
+        setDireccionInput(nextDireccion);
+
+        // Applied state
+        setQuery(nextQuery);
+        setTipoAdmin(nextTipoAdmin);
+        setRegionId(typeof nextRegionId === "number" ? nextRegionId : undefined);
+        setFechaDesde(nextFechaDesde);
+        setFechaHasta(nextFechaHasta);
+        setOrder(nextOrder);
+        setDireccion(nextDireccion);
+
+        setPage(1);
+      } catch {
+        // No bloquea la pantalla
+      }
+    }
+
+    void loadGlobalFilters();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // Carga listado
   useEffect(() => {
     const controller = new AbortController();
 
@@ -107,6 +207,11 @@ export default function Home() {
           cache: "no-store",
         });
 
+        const contentType = res.headers.get("content-type") ?? "";
+        if (!contentType.includes("application/json")) {
+          throw new Error("La API de búsqueda no devolvió JSON válido");
+        }
+
         const json = (await res.json()) as GrantsResponse;
 
         if (!res.ok || !json.ok || !json.data) {
@@ -125,9 +230,44 @@ export default function Home() {
       }
     }
 
-    loadGrants();
+    void loadGrants();
     return () => controller.abort();
   }, [query, page, fechaDesde, fechaHasta, tipoAdmin, order, direccion, regionId]);
+
+  async function handleOpenDetail(grantId: string) {
+    setDetailOpen(true);
+    setDetailLoading(true);
+    setDetailError(null);
+    setDetailData(null);
+
+    try {
+      const res = await fetch(`/api/grants/${grantId}`, { cache: "no-store" });
+      const contentType = res.headers.get("content-type") ?? "";
+
+      if (!contentType.includes("application/json")) {
+        throw new Error("La respuesta de detalle no es JSON");
+      }
+
+      const json = (await res.json()) as GrantDetailResponse;
+
+      if (!res.ok || !json.ok || !json.data) {
+        throw new Error(json.error ?? "No se pudo cargar el detalle");
+      }
+
+      setDetailData(json.data);
+    } catch (err) {
+      setDetailError(err instanceof Error ? err.message : "Error cargando detalle");
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
+  function handleCloseDetail() {
+    setDetailOpen(false);
+    setDetailLoading(false);
+    setDetailError(null);
+    setDetailData(null);
+  }
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -138,7 +278,9 @@ export default function Home() {
     }
 
     setError(null);
+    setProfileMessage(null);
     setPage(1);
+
     setQuery(queryInput);
     setFechaDesde(fechaDesdeInput);
     setFechaHasta(fechaHastaInput);
@@ -167,6 +309,49 @@ export default function Home() {
 
     setPage(1);
     setError(null);
+    setProfileMessage(null);
+  }
+
+  async function handleSaveGlobalProfile() {
+    setSavingProfile(true);
+    setProfileMessage(null);
+
+    try {
+      const payload = {
+        searchText: queryInput,
+        tipoAdministracion: tipoAdminInput || null,
+        regionId: typeof regionIdInput === "number" ? regionIdInput : null,
+        fechaDesde: fechaDesdeInput || null,
+        fechaHasta: fechaHastaInput || null,
+        orderBy: orderInput,
+        direccion: direccionInput,
+      };
+
+      const res = await fetch("/api/settings/global-filters", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const contentType = res.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        throw new Error("La API de configuración no devolvió JSON válido");
+      }
+
+      const json = (await res.json()) as GlobalFiltersResponse;
+
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error ?? "No se pudo guardar el perfil global");
+      }
+
+      setProfileMessage("Perfil global guardado correctamente.");
+    } catch (err) {
+      setProfileMessage(
+        err instanceof Error ? err.message : "Error guardando perfil global."
+      );
+    } finally {
+      setSavingProfile(false);
+    }
   }
 
   return (
@@ -322,7 +507,7 @@ export default function Home() {
           </div>
 
           <div className={styles.actions}>
-            <button type="submit" disabled={loading}>
+            <button type="submit" disabled={loading || savingProfile}>
               {loading ? "Buscando..." : "Aplicar filtros"}
             </button>
 
@@ -330,11 +515,21 @@ export default function Home() {
               type="button"
               className={styles.secondaryButton}
               onClick={onClearFilters}
-              disabled={loading}
+              disabled={loading || savingProfile}
             >
               Limpiar
             </button>
+
+            <button
+              type="button"
+              className={styles.secondaryButton}
+              onClick={() => void handleSaveGlobalProfile()}
+              disabled={loading || savingProfile}
+            >
+              {savingProfile ? "Guardando..." : "Guardar perfil global"}
+            </button>
           </div>
+          {profileMessage ? <p className={styles.profileMessage}>{profileMessage}</p> : null}
         </form>
 
         <section className={styles.meta}>
@@ -368,7 +563,13 @@ export default function Home() {
               </p>
 
               <p className={styles.cardActions}>
-                <Link href={`/grants/${grant.id}`}>Ver detalle interno</Link>
+                <button
+                  type="button"
+                  className={styles.detailButton}
+                  onClick={() => void handleOpenDetail(grant.id)}
+                >
+                  Ver detalle interno
+                </button>
               </p>
 
               {grant.sourceUrl ? (
@@ -399,6 +600,54 @@ export default function Home() {
             Siguiente
           </button>
         </nav>
+
+        {detailOpen && (
+          <div className={styles.modalOverlay} onClick={handleCloseDetail}>
+            <div className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                className={styles.modalClose}
+                onClick={handleCloseDetail}
+              >
+                ×
+              </button>
+
+              {detailLoading ? <p>Cargando detalle...</p> : null}
+
+              {detailError ? <p className={styles.error}>Error: {detailError}</p> : null}
+
+              {!detailLoading && !detailError && detailData ? (
+                <>
+                  <h2 className={styles.modalTitle}>{detailData.title}</h2>
+
+                  <p>
+                    <strong>Organismo:</strong> {detailData.organization ?? "No informado"}
+                  </p>
+                  <p>
+                    <strong>Fecha publicación:</strong>{" "}
+                    {detailData.publicationDate ?? "No informada"}
+                  </p>
+
+                  <h3 className={styles.modalSectionTitle}>Descripción</h3>
+                  <p className={styles.modalDescription}>
+                    {detailData.description ?? "Sin descripción"}
+                  </p>
+
+                  {detailData.sourceUrl ? (
+                    <a
+                      className={styles.modalExternalLink}
+                      href={detailData.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Ver en portal oficial
+                    </a>
+                  ) : null}
+                </>
+              ) : null}
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
