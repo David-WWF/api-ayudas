@@ -4,18 +4,18 @@ overview: Planificar un MVP interno con Next.js para búsqueda y alertas semanal
 todos:
   - id: bloque-1-docker-base
     content: Levantar estructura Next.js + PostgreSQL en Docker y verificar entorno reproducible.
-    status: pending
+    status: completed
   - id: bloque-2-bdns-bff
     content: Implementar integración BDNS detrás de endpoint interno normalizado.
-    status: pending
+    status: completed
   - id: bloque-3-front-busqueda
     content: Construir buscador, listado y detalle consumiendo la API interna.
-    status: pending
+    status: completed
   - id: bloque-4-config-alertas
-    content: Crear configuración interna de filtros globales y destinatarios fijos.
-    status: pending
+    content: Crear configuración interna multi-alerta (perfiles) y destinatarios fijos.
+    status: in_progress
   - id: bloque-5-alerta-semanal
-    content: Implementar job semanal con deduplicación y envío de email resumen.
+    content: Implementar job semanal multi-perfil con deduplicación y envío de email resumen.
     status: pending
   - id: bloque-6-hardening
     content: Aplicar validaciones, logs y ajustes de rendimiento para uso interno.
@@ -42,7 +42,7 @@ Aplicación web interna para:
 
 - Buscar convocatorias de ayudas/subvenciones a empresas.
 - Filtrar y consultar detalle.
-- Enviar alertas **semanales** por email con resultados nuevos según filtros globales.
+- Enviar alertas **semanales** por email con resultados nuevos según múltiples perfiles de filtros.
 
 Fuente principal: BDNS ([https://www.pap.hacienda.gob.es/bdnstrans/GE/es/doc](https://www.pap.hacienda.gob.es/bdnstrans/GE/es/doc)).
 
@@ -68,35 +68,35 @@ flowchart LR
 
 ## Estructura funcional (sin cuentas)
 
-- Búsqueda y listado con filtros globales.
+- Búsqueda y listado con filtros.
 - Detalle de convocatoria.
-- Configuración interna única (destinatarios fijos + filtros globales).
+- Configuración interna de alertas con múltiples perfiles (destinatarios fijos compartidos).
 - Motor de alertas semanal que:
-  - ejecuta búsqueda,
-  - detecta novedades,
+  - ejecuta búsqueda por perfil,
+  - detecta novedades por perfil,
   - envía un email resumen a lista fija.
 
 ## Diferenciación frente al portal BDNS (valor añadido)
 
 Para no replicar únicamente la consulta pública, se añade enfoque operativo interno:
 
-- **Perfil global persistente de interés**:
-  - un único perfil de filtros de negocio (texto, CCAA, administración, fechas),
-  - editable en panel interno para toda la organización.
+- **Perfiles de alerta persistentes**:
+  - múltiples perfiles de filtros de negocio (texto, CCAA, administración, fechas),
+  - activables/desactivables según necesidad operativa.
 - **Vigilancia automática de novedades**:
-  - comparación semanal contra snapshot histórico,
+  - comparación semanal contra snapshot histórico por perfil,
   - envío de solo convocatorias nuevas o relevantes (menos ruido).
 - **Resumen accionable interno**:
-  - email semanal con top resultados y enlaces directos al detalle interno.
+  - email semanal con top resultados por perfil y enlaces directos al detalle interno.
 
 ## Modelo de datos ajustado (sin tabla de usuarios)
 
-Tablas mínimas sugeridas:
+Tablas mínimas sugeridas (enfoque multi-alerta):
 
-- `global_filters` (configuración activa de filtros de alertas).
+- `alert_profiles` (configuración de cada alerta: nombre, estado, filtros).
 - `notification_recipients` (lista fija de emails internos).
-- `grants_snapshot` (cache/normalización de convocatorias vistas).
-- `alerts_history` (histórico de envíos y resultados incluidos).
+- `grants_snapshot` (convocatorias vistas por perfil para deduplicación).
+- `alerts_history` (histórico de envíos por perfil y resultados incluidos).
 
 ## Bloques de implementación (orientados a aprendizaje)
 
@@ -124,29 +124,34 @@ Tablas mínimas sugeridas:
 - Página de detalle de convocatoria.
 - Manejo de estados: loading, vacío, error.
 
-### Bloque 4 - Configuración interna de alertas
+### Bloque 4 - Configuración interna de alertas (multi-perfil)
 
 **Qué aprenderás**: persistencia de configuración operativa.
 
 - Pantalla/admin interna simple para:
-  - editar filtros globales,
+  - crear/editar/desactivar perfiles de alerta,
+  - definir filtros por perfil (texto, administración, CCAA, fechas),
   - gestionar lista fija de destinatarios.
-- Guardado en PostgreSQL.
-- Incluir en la configuración global el **perfil persistente de interés**:
-  - texto objetivo,
-  - administración y CCAA,
-  - rango temporal base.
+- Guardado en PostgreSQL de perfiles y configuración.
 
-### Bloque 5 - Motor semanal de alertas
+### Bloque 5 - Motor semanal de alertas (multi-perfil)
 
 **Qué aprenderás**: jobs periódicos e idempotencia.
 
-- Job semanal (cron) que consulta BDNS con filtros globales.
-- Detección de nuevas convocatorias respecto a `grants_snapshot`.
-- Registro en `alerts_history` y envío de email resumen.
+- Job semanal (cron) que consulta BDNS para cada perfil activo.
+- Detección de nuevas convocatorias respecto a `grants_snapshot` por perfil.
+- Registro en `alerts_history` y envío de email resumen por perfil (o consolidado).
 - El email prioriza valor operativo:
-  - destacar nuevas convocatorias relevantes para el perfil global,
+  - destacar nuevas convocatorias relevantes por perfil,
   - reducir ruido con deduplicación y resumen corto accionable.
+
+## Estado actual resumido
+
+- Bloque 1: **Completado**.
+- Bloque 2: **Completado**.
+- Bloque 3: **Completado** (buscador con filtros, detalle en modal, persistencia de perfil base).
+- Bloque 4: **En progreso** (migración de perfil único a multi-alerta).
+- Bloque 5-7: **Pendiente**.
 
 ### Bloque 6 - Hardening para uso interno
 
