@@ -92,6 +92,10 @@
   cursor: pointer;
 }
 
+.modalActions {
+  margin-top: 10px;
+}
+
 .searchForm button {
   border: none;
   background: #111827;
@@ -317,4 +321,125 @@
   .actions button {
     width: 100%;
   }
+}
+
+.profileFormGrid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.profileFormGrid input,
+.profileFormGrid select {
+  height: 40px;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  padding: 0 10px;
+  background: #fff;
+  color: #111827;
+}
+
+.profileList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.profileCard {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px;
+  background: #fff;
+}
+
+.profileCard p {
+  margin: 6px 0;
+  color: #374151;
+}
+
+@media (max-width: 700px) {
+  .profileFormGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.headerActions {
+  margin-top: 12px;
+  margin-bottom: 18px;
+}
+
+.manageAlertsButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 46px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #2563eb, #0f766e);
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.28);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+.manageAlertsButton:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.32);
+}
+
+.manageAlertsButton:active {
+  transform: translateY(0);
+}
+
+.manageAlertsButton:focus-visible {
+  outline: 3px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+.manageAlertsIcon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.profileNameInput {
+  width: 100%;
+  height: 38px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 0 10px;
+  font-size: 14px;
+  background: #fff;
+  color: #111827;
+}
+
+.profileActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.profileActions button {
+  height: 34px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  color: #111827;
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.profileActions button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.dangerButton {
+  border-color: #ef4444 !important;
+  color: #b91c1c !important;
 }

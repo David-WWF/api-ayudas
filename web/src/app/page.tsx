@@ -56,6 +56,40 @@ type GlobalFiltersResponse = {
   error?: string;
 };
 
+type AlertFilters = {
+  searchText: string;
+  tipoAdministracion: "C" | "A" | "L" | "O" | null;
+  regionId: number | null;
+  fechaDesde: string | null;
+  fechaHasta: string | null;
+  orderBy:
+  | "numeroConvocatoria"
+  | "mrr"
+  | "nivel1"
+  | "nivel2"
+  | "nivel3"
+  | "fechaRecepcion"
+  | "descripcion"
+  | "descripcionLeng";
+  direccion: "asc" | "desc";
+};
+
+type AlertProfile = {
+  id: number;
+  name: string;
+  enabled: boolean;
+  filters: AlertFilters;
+  scheduleCron: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+type AlertProfilesResponse = {
+  ok: boolean;
+  data?: AlertProfile[];
+  error?: string;
+};
+
 const PAGE_SIZE = 10;
 
 export default function Home() {
@@ -93,6 +127,29 @@ export default function Home() {
   const [detailData, setDetailData] = useState<GrantDetail | null>(null);
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total]);
+
+  const [profilesModalOpen, setProfilesModalOpen] = useState(false);
+  const [profilesLoading, setProfilesLoading] = useState(false);
+  const [profilesSaving, setProfilesSaving] = useState(false);
+  const [profilesError, setProfilesError] = useState<string | null>(null);
+  const [profiles, setProfiles] = useState<AlertProfile[]>([]);
+  const [profileBusyId, setProfileBusyId] = useState<number | null>(null);
+
+  // Form nuevo perfil
+  const [newProfileName, setNewProfileName] = useState("Nueva alerta");
+  const [newProfileSearch, setNewProfileSearch] = useState("");
+  const [newProfileTipoAdmin, setNewProfileTipoAdmin] = useState("");
+  const [newProfileRegionId, setNewProfileRegionId] = useState("");
+  const [newProfileFechaDesde, setNewProfileFechaDesde] = useState("");
+  const [newProfileFechaHasta, setNewProfileFechaHasta] = useState("");
+
+  const regionsById = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const region of regions) {
+      map.set(region.id, region.name);
+    }
+    return map;
+  }, [regions]);
 
   // Carga catálogo de comunidades autónomas
   useEffect(() => {
@@ -261,6 +318,195 @@ export default function Home() {
       setDetailLoading(false);
     }
   }
+  async function loadProfiles() {
+    setProfilesLoading(true);
+    setProfilesError(null);
+
+    try {
+      const res = await fetch("/api/settings/alert-profiles", { cache: "no-store" });
+      const contentType = res.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        throw new Error("La API de perfiles no devolvió JSON válido");
+      }
+
+      const json = (await res.json()) as AlertProfilesResponse;
+
+      if (!res.ok || !json.ok || !Array.isArray(json.data)) {
+        throw new Error(json.error ?? "No se pudieron cargar los perfiles");
+      }
+
+      setProfiles(json.data);
+    } catch (err) {
+      setProfilesError(err instanceof Error ? err.message : "Error cargando perfiles");
+    } finally {
+      setProfilesLoading(false);
+    }
+  }
+
+  async function createProfile() {
+    const trimmedName = newProfileName.trim();
+    if (!trimmedName) {
+      setProfilesError("El nombre del perfil es obligatorio.");
+      return;
+    }
+
+    setProfilesSaving(true);
+    setProfilesError(null);
+
+    try {
+      const payload = {
+        name: trimmedName,
+        enabled: true,
+        scheduleCron: "0 9 * * 1",
+        filters: {
+          searchText: newProfileSearch,
+          tipoAdministracion: newProfileTipoAdmin || null,
+          regionId:
+            newProfileTipoAdmin === "A" && newProfileRegionId
+              ? Number(newProfileRegionId)
+              : null,
+          fechaDesde: newProfileFechaDesde || null,
+          fechaHasta: newProfileFechaHasta || null,
+          orderBy: "fechaRecepcion",
+          direccion: "desc",
+        },
+      };
+
+      const res = await fetch("/api/settings/alert-profiles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const contentType = res.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        throw new Error("La API de perfiles no devolvió JSON válido");
+      }
+
+      const json = (await res.json()) as { ok: boolean; error?: string };
+
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error ?? "No se pudo crear el perfil");
+      }
+
+      setNewProfileName("Nueva alerta");
+      setNewProfileSearch("");
+      setNewProfileTipoAdmin("");
+      setNewProfileRegionId("");
+      setNewProfileFechaDesde("");
+      setNewProfileFechaHasta("");
+
+      await loadProfiles();
+    } catch (err) {
+      setProfilesError(err instanceof Error ? err.message : "Error creando perfil");
+    } finally {
+      setProfilesSaving(false);
+    }
+  }
+
+  async function toggleProfileEnabled(profile: AlertProfile) {
+    setProfilesError(null);
+    setProfileBusyId(profile.id);
+
+    try {
+      const res = await fetch(`/api/settings/alert-profiles/${profile.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: profile.name,
+          enabled: !profile.enabled,
+          scheduleCron: profile.scheduleCron ?? "0 9 * * 1",
+          filters: profile.filters,
+        }),
+      });
+
+      const contentType = res.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        throw new Error("La API de perfiles no devolvió JSON válido");
+      }
+
+      const json = (await res.json()) as { ok: boolean; error?: string };
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error ?? "No se pudo actualizar el perfil");
+      }
+
+      await loadProfiles();
+    } catch (err) {
+      setProfilesError(err instanceof Error ? err.message : "Error actualizando perfil");
+    } finally {
+      setProfileBusyId(null);
+    }
+  }
+
+  async function saveProfileName(profile: AlertProfile) {
+    const trimmedName = profile.name.trim();
+    if (!trimmedName) {
+      setProfilesError("El nombre del perfil no puede estar vacío.");
+      return;
+    }
+
+    setProfilesError(null);
+    setProfileBusyId(profile.id);
+
+    try {
+      const res = await fetch(`/api/settings/alert-profiles/${profile.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: trimmedName,
+          enabled: profile.enabled,
+          scheduleCron: profile.scheduleCron ?? "0 9 * * 1",
+          filters: profile.filters,
+        }),
+      });
+
+      const contentType = res.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        throw new Error("La API de perfiles no devolvió JSON válido");
+      }
+
+      const json = (await res.json()) as { ok: boolean; error?: string };
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error ?? "No se pudo guardar el nombre");
+      }
+
+      await loadProfiles();
+    } catch (err) {
+      setProfilesError(err instanceof Error ? err.message : "Error guardando nombre");
+    } finally {
+      setProfileBusyId(null);
+    }
+  }
+
+  async function deleteProfile(profileId: number) {
+    const confirmed = window.confirm("¿Seguro que quieres eliminar este perfil?");
+    if (!confirmed) return;
+
+    setProfilesError(null);
+    setProfileBusyId(profileId);
+
+    try {
+      const res = await fetch(`/api/settings/alert-profiles/${profileId}`, {
+        method: "DELETE",
+      });
+
+      const contentType = res.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        throw new Error("La API de perfiles no devolvió JSON válido");
+      }
+
+      const json = (await res.json()) as { ok: boolean; error?: string };
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error ?? "No se pudo eliminar el perfil");
+      }
+
+      await loadProfiles();
+    } catch (err) {
+      setProfilesError(err instanceof Error ? err.message : "Error eliminando perfil");
+    } finally {
+      setProfileBusyId(null);
+    }
+  }
 
   function handleCloseDetail() {
     setDetailOpen(false);
@@ -360,6 +606,39 @@ export default function Home() {
         <header className={styles.header}>
           <h1>Buscador interno de ayudas</h1>
           <p>Consulta convocatorias públicas desde BDNS a través de tu API interna.</p>
+          <div className={styles.headerActions}>
+            <button
+              type="button"
+              className={styles.manageAlertsButton}
+              onClick={() => {
+                setProfilesModalOpen(true);
+                void loadProfiles();
+              }}
+            >
+              <svg
+                className={styles.manageAlertsIcon}
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden="true"
+              >
+                <path
+                  d="M12 3a6 6 0 0 0-6 6v3.6l-1.4 2.8a1 1 0 0 0 .9 1.6h13a1 1 0 0 0 .9-1.6L18 12.6V9a6 6 0 0 0-6-6Z"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M9.5 18a2.5 2.5 0 0 0 5 0"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              <span>Gestionar alertas</span>
+            </button>
+          </div>
         </header>
 
         <form className={styles.searchForm} onSubmit={onSubmit}>
@@ -645,6 +924,148 @@ export default function Home() {
                   ) : null}
                 </>
               ) : null}
+            </div>
+          </div>
+        )}
+        {profilesModalOpen && (
+          <div className={styles.modalOverlay} onClick={() => setProfilesModalOpen(false)}>
+            <div className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                className={styles.modalClose}
+                onClick={() => setProfilesModalOpen(false)}
+              >
+                ×
+              </button>
+
+              <h2 className={styles.modalTitle}>Gestión de alertas</h2>
+
+              <div className={styles.profileFormGrid}>
+                <input
+                  placeholder="Nombre del perfil"
+                  value={newProfileName}
+                  onChange={(e) => setNewProfileName(e.target.value)}
+                />
+                <input
+                  placeholder="Texto (ej. innovación)"
+                  value={newProfileSearch}
+                  onChange={(e) => setNewProfileSearch(e.target.value)}
+                />
+                <select
+                  value={newProfileTipoAdmin}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setNewProfileTipoAdmin(value);
+                    if (value !== "A") {
+                      setNewProfileRegionId("");
+                    }
+                  }}
+                >
+                  <option value="">Administración: todas</option>
+                  <option value="C">Estado</option>
+                  <option value="A">Comunidad Autónoma</option>
+                  <option value="L">Entidad Local</option>
+                  <option value="O">Otros</option>
+                </select>
+                {newProfileTipoAdmin === "A" ? (
+                  <select
+                    value={newProfileRegionId}
+                    onChange={(e) => setNewProfileRegionId(e.target.value)}
+                  >
+                    <option value="">Comunidad Autónoma: todas</option>
+                    {regions.map((r) => (
+                      <option key={r.id} value={String(r.id)}>
+                        {r.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input disabled placeholder="CCAA solo para administración autonómica" />
+                )}
+                <input
+                  type="date"
+                  value={newProfileFechaDesde}
+                  onChange={(e) => setNewProfileFechaDesde(e.target.value)}
+                />
+                <input
+                  type="date"
+                  value={newProfileFechaHasta}
+                  onChange={(e) => setNewProfileFechaHasta(e.target.value)}
+                />
+              </div>
+
+              <div className={`${styles.actions} ${styles.modalActions}`}>
+                <button
+                  type="button"
+                  onClick={() => void createProfile()}
+                  disabled={profilesSaving}
+                >
+                  {profilesSaving ? "Creando..." : "Crear perfil"}
+                </button>
+              </div>
+
+              {profilesError ? <p className={styles.error}>Error: {profilesError}</p> : null}
+
+              <h3 className={styles.modalSectionTitle}>Perfiles existentes</h3>
+              {profilesLoading ? <p>Cargando...</p> : null}
+
+              {!profilesLoading && profiles.length === 0 ? (
+                <p>No hay perfiles creados todavía.</p>
+              ) : null}
+
+              <ul className={styles.profileList}>
+                {profiles.map((p) => (
+                  <li key={p.id} className={styles.profileCard}>
+                    <input
+                      className={styles.profileNameInput}
+                      value={p.name}
+                      disabled={profileBusyId === p.id}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setProfiles((prev) =>
+                          prev.map((item) => (item.id === p.id ? { ...item, name: value } : item))
+                        );
+                      }}
+                    />
+
+                    <p>
+                      Estado: {p.enabled ? "Activo" : "Inactivo"} | Texto:{" "}
+                      {p.filters.searchText || "(vacío)"} | Admin:{" "}
+                      {p.filters.tipoAdministracion ?? "todas"} | Región:{" "}
+                      {typeof p.filters.regionId === "number"
+                        ? (regionsById.get(p.filters.regionId) ?? p.filters.regionId)
+                        : "todas"}
+                    </p>
+
+                    <div className={styles.profileActions}>
+                      <button
+                        type="button"
+                        disabled={profileBusyId === p.id}
+                        onClick={() => void toggleProfileEnabled(p)}
+                      >
+                        {p.enabled ? "Desactivar" : "Activar"}
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={profileBusyId === p.id}
+                        onClick={() => void saveProfileName(p)}
+                      >
+                        Guardar nombre
+                      </button>
+
+                      <button
+                        type="button"
+                        className={styles.dangerButton}
+                        disabled={profileBusyId === p.id}
+                        onClick={() => void deleteProfile(p.id)}
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
             </div>
           </div>
         )}
