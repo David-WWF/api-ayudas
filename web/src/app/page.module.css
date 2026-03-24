@@ -36,15 +36,6 @@
   width: 100%;
 }
 
-.filtersGrid {
-  display: grid;
-  grid-template-columns: 1.5fr 1fr 1fr 1fr;
-  gap: 10px;
-  margin-bottom: 10px;
-  width: 100%;
-  min-width: 0;
-}
-
 .field {
   display: flex;
   flex-direction: column;
@@ -238,4 +229,5 @@
   margin-bottom: 10px;
   width: 100%;
   min-width: 0;
+  align-items: end;
 }

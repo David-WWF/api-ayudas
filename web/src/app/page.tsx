@@ -25,6 +25,8 @@ type GrantsResponse = {
   error?: string;
 };
 
+type RegionOption = { id: number; name: string };
+
 const PAGE_SIZE = 10;
 
 export default function Home() {
@@ -32,11 +34,19 @@ export default function Home() {
   const [fechaDesdeInput, setFechaDesdeInput] = useState("");
   const [fechaHastaInput, setFechaHastaInput] = useState("");
   const [tipoAdminInput, setTipoAdminInput] = useState("");
+  const [orderInput, setOrderInput] = useState("fechaRecepcion");
+  const [direccionInput, setDireccionInput] = useState<"asc" | "desc">("desc");
+  const [regionIdInput, setRegionIdInput] = useState<number | "">("");
 
   const [query, setQuery] = useState("ayuda");
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
   const [tipoAdmin, setTipoAdmin] = useState("");
+  const [order, setOrder] = useState("fechaRecepcion");
+  const [direccion, setDireccion] = useState<"asc" | "desc">("desc");
+  const [regionId, setRegionId] = useState<number | undefined>(undefined);
+
+  const [regions, setRegions] = useState<RegionOption[]>([]);
 
   const [page, setPage] = useState(1);
   const [items, setItems] = useState<GrantItem[]>([]);
@@ -46,11 +56,30 @@ export default function Home() {
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total]);
 
-  const [orderInput, setOrderInput] = useState("fechaRecepcion");
-  const [direccionInput, setDireccionInput] = useState<"asc" | "desc">("desc");
+  // Carga catálogo de comunidades autónomas
+  useEffect(() => {
+    let mounted = true;
 
-  const [order, setOrder] = useState("fechaRecepcion");
-  const [direccion, setDireccion] = useState<"asc" | "desc">("desc");
+    async function loadRegions() {
+      try {
+        const res = await fetch("/api/catalogs/regions", { cache: "no-store" });
+        const json = (await res.json()) as { ok: boolean; data?: RegionOption[] };
+
+        if (!mounted) return;
+        if (res.ok && json.ok && Array.isArray(json.data)) {
+          setRegions(json.data);
+        }
+      } catch {
+        // Si falla el catálogo, no bloqueamos el buscador
+      }
+    }
+
+    loadRegions();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -69,9 +98,9 @@ export default function Home() {
         if (fechaDesde) params.set("fechaDesde", fechaDesde);
         if (fechaHasta) params.set("fechaHasta", fechaHasta);
         if (tipoAdmin) params.set("tipoAdministracion", tipoAdmin);
-
         if (order) params.set("order", order);
         if (direccion) params.set("direccion", direccion);
+        if (typeof regionId === "number") params.set("regionId", String(regionId));
 
         const res = await fetch(`/api/grants/search?${params.toString()}`, {
           signal: controller.signal,
@@ -98,7 +127,7 @@ export default function Home() {
 
     loadGrants();
     return () => controller.abort();
-  }, [query, page, fechaDesde, fechaHasta, tipoAdmin, order, direccion]);
+  }, [query, page, fechaDesde, fechaHasta, tipoAdmin, order, direccion, regionId]);
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -108,6 +137,7 @@ export default function Home() {
       return;
     }
 
+    setError(null);
     setPage(1);
     setQuery(queryInput);
     setFechaDesde(fechaDesdeInput);
@@ -115,6 +145,7 @@ export default function Home() {
     setTipoAdmin(tipoAdminInput);
     setOrder(orderInput);
     setDireccion(direccionInput);
+    setRegionId(typeof regionIdInput === "number" ? regionIdInput : undefined);
   }
 
   function onClearFilters() {
@@ -122,18 +153,19 @@ export default function Home() {
     setFechaDesdeInput("");
     setFechaHastaInput("");
     setTipoAdminInput("");
+    setOrderInput("fechaRecepcion");
+    setDireccionInput("desc");
+    setRegionIdInput("");
 
     setQuery("");
     setFechaDesde("");
     setFechaHasta("");
     setTipoAdmin("");
-    setPage(1);
-
-    setOrderInput("fechaRecepcion");
-    setDireccionInput("desc");
     setOrder("fechaRecepcion");
     setDireccion("desc");
+    setRegionId(undefined);
 
+    setPage(1);
     setError(null);
   }
 
@@ -164,7 +196,19 @@ export default function Home() {
                 id="fechaDesde"
                 type="date"
                 value={fechaDesdeInput}
-                onChange={(e) => setFechaDesdeInput(e.target.value)}
+                onChange={(e) => {
+                  const value = e.target.value;
+
+                  if (fechaHastaInput && value && value > fechaHastaInput) {
+                    setError("La fecha 'desde' no puede ser mayor que la fecha 'hasta'.");
+                    return;
+                  }
+
+                  setError(null);
+                  setFechaDesdeInput(value);
+                  setFechaDesde(value);
+                  setPage(1);
+                }}
               />
             </div>
 
@@ -174,7 +218,19 @@ export default function Home() {
                 id="fechaHasta"
                 type="date"
                 value={fechaHastaInput}
-                onChange={(e) => setFechaHastaInput(e.target.value)}
+                onChange={(e) => {
+                  const value = e.target.value;
+
+                  if (fechaDesdeInput && value && value < fechaDesdeInput) {
+                    setError("La fecha 'hasta' no puede ser menor que la fecha 'desde'.");
+                    return;
+                  }
+
+                  setError(null);
+                  setFechaHastaInput(value);
+                  setFechaHasta(value);
+                  setPage(1);
+                }}
               />
             </div>
 
@@ -183,7 +239,18 @@ export default function Home() {
               <select
                 id="tipoAdministracion"
                 value={tipoAdminInput}
-                onChange={(e) => setTipoAdminInput(e.target.value)}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setTipoAdminInput(value);
+                  setTipoAdmin(value);
+
+                  if (value !== "A") {
+                    setRegionIdInput("");
+                    setRegionId(undefined);
+                  }
+
+                  setPage(1);
+                }}
               >
                 <option value="">Todas</option>
                 <option value="C">Estado (C)</option>
@@ -193,12 +260,41 @@ export default function Home() {
               </select>
             </div>
 
+            {tipoAdminInput === "A" && (
+              <div className={styles.field}>
+                <label htmlFor="regionId">Comunidad Autónoma</label>
+                <select
+                  id="regionId"
+                  value={regionIdInput === "" ? "" : String(regionIdInput)}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    const parsed = value ? Number(value) : "";
+                    setRegionIdInput(parsed);
+                    setRegionId(typeof parsed === "number" ? parsed : undefined);
+                    setPage(1);
+                  }}
+                >
+                  <option value="">Todas</option>
+                  {regions.map((r) => (
+                    <option key={r.id} value={String(r.id)}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div className={styles.field}>
               <label htmlFor="order">Ordenar por</label>
               <select
                 id="order"
                 value={orderInput}
-                onChange={(e) => setOrderInput(e.target.value)}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setOrderInput(value);
+                  setOrder(value);
+                  setPage(1);
+                }}
               >
                 <option value="fechaRecepcion">Fecha publicación</option>
                 <option value="descripcion">Título</option>
@@ -212,7 +308,12 @@ export default function Home() {
               <select
                 id="direccion"
                 value={direccionInput}
-                onChange={(e) => setDireccionInput(e.target.value as "asc" | "desc")}
+                onChange={(e) => {
+                  const value = e.target.value as "asc" | "desc";
+                  setDireccionInput(value);
+                  setDireccion(value);
+                  setPage(1);
+                }}
               >
                 <option value="desc">Descendente</option>
                 <option value="asc">Ascendente</option>

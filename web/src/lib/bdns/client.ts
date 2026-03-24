@@ -26,6 +26,7 @@ export type SearchGrantsParams = {
   tipoAdministracion?: string;
   order?: string;
   direccion?: "asc" | "desc";
+  regionId?: number;
 };
 
 function getEnvNumber(name: string, fallback: number): number {
@@ -84,6 +85,16 @@ function buildSearchUrl(endpoint: string, params: SearchGrantsParams): string {
   url.searchParams.set("page", String(pageZeroBased));
   url.searchParams.set("pageSize", String(params.pageSize));
   url.searchParams.set("vpd", "GE");
+
+  if (
+    params.tipoAdministracion === "A" &&
+    typeof params.regionId === "number" &&
+    Number.isInteger(params.regionId) &&
+    params.regionId > 0
+  ) {
+    // BDNS acepta lista; para un solo valor enviamos uno.
+    url.searchParams.set("regiones", String(params.regionId));
+  }
 
   return url.toString();
 }

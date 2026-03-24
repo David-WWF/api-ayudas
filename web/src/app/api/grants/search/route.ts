@@ -3,6 +3,8 @@ import { searchGrants } from "@/lib/bdns/client";
 
 export const runtime = "nodejs";
 
+
+
 function toPositiveInt(value: string | null, fallback: number): number {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
@@ -40,6 +42,13 @@ export async function GET(request: NextRequest) {
       ? direccionRaw
       : undefined;
 
+  const regionIdRaw = searchParams.get("regionId");
+  const regionIdParsed = Number(regionIdRaw);
+  const regionId =
+    Number.isInteger(regionIdParsed) && regionIdParsed > 0
+      ? regionIdParsed
+      : undefined;
+
   try {
     const data = await searchGrants({
       q,
@@ -50,6 +59,7 @@ export async function GET(request: NextRequest) {
       tipoAdministracion,
       order,
       direccion,
+      regionId,
     });
 
     return NextResponse.json(
