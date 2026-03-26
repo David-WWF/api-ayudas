@@ -224,6 +224,27 @@ function toSearchParams(filters: AlertFilters) {
   };
 }
 
+function getTimeoutMs(): number {
+  const raw = Number(process.env.ALERTS_CHANNEL_TIMEOUT_MS ?? "15000");
+  return Number.isFinite(raw) && raw > 0 ? raw : 15000;
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const id = setTimeout(() => reject(new Error(`Timeout en canal ${label} (${ms}ms)`)), ms);
+
+    promise
+      .then((value) => {
+        clearTimeout(id);
+        resolve(value);
+      })
+      .catch((err) => {
+        clearTimeout(id);
+        reject(err);
+      });
+  });
+}
+
 export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
   if (weeklyRunInProgress) {
     throw new WeeklyRunAlreadyRunningError();
@@ -307,9 +328,11 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
         profiles: digestProfiles,
       };
 
+      const timeoutMs = getTimeoutMs();
+
       const [emailResult, telegramResult] = await Promise.all([
-        sendWeeklyDigestEmail(payload),
-        sendWeeklyDigestTelegram(payload),
+        withTimeout(sendWeeklyDigestEmail(payload), timeoutMs, "email"),
+        withTimeout(sendWeeklyDigestTelegram(payload), timeoutMs, "telegram"),
       ]);
 
       emailStatus = emailResult.status === "sent" ? "sent" : "error";
