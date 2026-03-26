@@ -230,11 +230,21 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
   }
 
   weeklyRunInProgress = true;
+  const startedAt = Date.now();
   try {
     await ensureTables();
 
     const runId = randomUUID();
+
     const profiles = await getActiveProfiles();
+
+    console.info(
+      JSON.stringify({
+        event: "weekly_run_started",
+        runId,
+        profilesCount: profiles.length,
+      })
+    );
 
     const profileSummaries: ProfileRunSummary[] = [];
     const digestProfiles: Array<{
@@ -336,6 +346,19 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
     const profilesWithNews = profileSummaries.filter((p) => p.newItemsCount > 0).length;
     const totalNewItems = profileSummaries.reduce((acc, p) => acc + p.newItemsCount, 0);
 
+    console.info(
+      JSON.stringify({
+        event: "weekly_run_finished",
+        runId,
+        durationMs: Date.now() - startedAt,
+        profilesWithNews,
+        totalNewItems,
+        dispatchStatus,
+        emailStatus,
+        telegramStatus,
+      })
+    );
+
     return {
       runId,
       processedProfiles: profiles.length,
@@ -348,7 +371,18 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
       dispatchStatus,
       profileSummaries,
     };
-  } finally {
+  }
+  catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "weekly_run_error",
+        error: error instanceof Error ? error.message : "Error desconocido",
+        durationMs: Date.now() - startedAt,
+      })
+    );
+    throw error;
+  }
+  finally {
     weeklyRunInProgress = false;
   }
 }

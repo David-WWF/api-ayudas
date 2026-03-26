@@ -24,15 +24,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    console.info(JSON.stringify({ event: "weekly_run_http_requested" }));
     const data = await runWeeklyAlerts();
     return NextResponse.json({ ok: true, data });
   } catch (error) {
     if (error instanceof WeeklyRunAlreadyRunningError) {
+      console.warn(JSON.stringify({ event: "weekly_run_http_conflict" }));
       return NextResponse.json(
         { ok: false, error: error.message },
         { status: 409 }
       );
     }
+    console.error(
+      JSON.stringify({
+        event: "weekly_run_http_failed",
+        error: error instanceof Error ? error.message : "error_desconocido",
+      })
+    );
     return NextResponse.json(
       {
         ok: false,
