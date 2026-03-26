@@ -1,36 +1,141 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# API Ayudas (web)
 
-## Getting Started
+Aplicacion interna construida con Next.js + TypeScript para:
 
-First, run the development server:
+- buscar convocatorias en BDNS,
+- guardar perfiles de alerta en PostgreSQL,
+- ejecutar un job semanal,
+- enviar avisos duplicados por **email** y **Telegram**.
+
+## Objetivo funcional
+
+El sistema permite definir varios perfiles de alerta (cada uno con sus filtros).  
+En cada corrida semanal se hace lo siguiente:
+
+1. Se consulta BDNS por cada perfil activo.
+2. Se comparan resultados contra snapshot historico (`grants_snapshot`) para detectar solo novedades.
+3. Se registra trazabilidad en `alerts_history`.
+4. Se envia resumen por email y por Telegram.
+5. Se actualiza estado final de envio (`sent_both`, `sent_partial`, `error_both`, `no_news`).
+
+## Arquitectura resumida
+
+- **UI (Next.js App Router):**
+  - Busqueda y filtros.
+  - Gestion de perfiles de alertas (modal CRUD).
+- **BFF / API interna (Next.js route handlers):**
+  - Encapsula llamadas a BDNS.
+  - Gestiona job semanal y endpoints de estado/ejecucion.
+- **Persistencia (PostgreSQL):**
+  - `alert_profiles`: configuracion de perfiles.
+  - `grants_snapshot`: deduplicacion por perfil.
+  - `alerts_history`: auditoria de ejecuciones.
+- **Servicios externos:**
+  - BDNS (fuente de convocatorias).
+  - SMTP (envio email).
+  - Telegram Bot API (envio Telegram).
+
+## Flujo del job semanal
+
+Archivo principal: `src/lib/alerts/weekly-runner.ts`
+
+- Aplica un candado en memoria (`weeklyRunInProgress`) para bloquear ejecuciones concurrentes.
+- Carga perfiles activos y ejecuta busqueda BDNS por perfil.
+- Detecta novedades comparando ids contra `grants_snapshot`.
+- Inserta una fila por perfil en `alerts_history` con estado inicial:
+  - `pending_dispatch` si hay novedades,
+  - `no_news` si no hay novedades.
+- Si hay novedades, dispara en paralelo:
+  - `sendWeeklyDigestEmail` (`src/lib/alerts/mailer.ts`)
+  - `sendWeeklyDigestTelegram` (`src/lib/alerts/telegram.ts`)
+- Cada canal se protege con timeout (`ALERTS_CHANNEL_TIMEOUT_MS`) para que no bloquee el job completo.
+- Consolida resultado final y actualiza `alerts_history` pendiente.
+- Escribe logs estructurados JSON para observabilidad.
+
+## Endpoint manual del job
+
+Archivo: `src/app/api/alerts/weekly/run/route.ts`
+
+- `POST /api/alerts/weekly/run`:
+  - valida secreto opcional por header `x-alerts-secret`,
+  - aplica rate limit en memoria (10s entre llamadas),
+  - ejecuta `runWeeklyAlerts`.
+- `GET /api/alerts/weekly/run`:
+  - devuelve estado del runner (`inProgress`).
+
+## Variables de entorno importantes
+
+Definidas en `web/.env.local` (no versionado):
+
+- **Base app/db**
+  - `DATABASE_URL`
+  - `APP_INTERNAL_URL`
+  - `TZ`
+- **BDNS**
+  - `BDNS_BASE_URL`
+  - `BDNS_TIMEOUT_MS`
+  - `BDNS_RETRIES`
+- **Job y seguridad**
+  - `ALERTS_RUN_SECRET`
+  - `ALERTS_AUTORUN_CRON`
+  - `ALERTS_CHANNEL_TIMEOUT_MS`
+- **Email (SMTP)**
+  - `ALERT_RECIPIENTS`
+  - `SMTP_HOST`
+  - `SMTP_PORT`
+  - `SMTP_SECURE`
+  - `SMTP_USER`
+  - `SMTP_PASS`
+  - `SMTP_FROM`
+- **Telegram**
+  - `TELEGRAM_BOT_TOKEN`
+  - `TELEGRAM_CHAT_ID`
+
+## Ejecucion en local con Docker
+
+Desde la raiz del repo:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+docker compose up -d --build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Servicios esperados:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- `db`: PostgreSQL
+- `app`: Next.js
+- `scheduler`: ejecuta cron y dispara endpoint semanal
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Ejecucion manual del job
 
-## Learn More
+Ejemplo PowerShell:
 
-To learn more about Next.js, take a look at the following resources:
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri "http://localhost:3000/api/alerts/weekly/run" `
+  -Headers @{ "x-alerts-secret" = "TU_SECRETO" }
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Logs y diagnostico
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Eventos relevantes en logs:
 
-## Deploy on Vercel
+- `weekly_run_http_requested`
+- `weekly_run_http_rate_limited`
+- `weekly_run_http_conflict`
+- `weekly_run_started`
+- `weekly_run_finished`
+- `weekly_run_error`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Problemas tipicos:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `401`: secreto incorrecto o ausente.
+- `409`: ya hay una corrida en curso.
+- `429`: llamadas manuales demasiado seguidas.
+- `emailStatus=error`: revisar SMTP y `ALERT_RECIPIENTS`.
+- `telegramStatus=error`: revisar token/chat id del bot.
+
+## Notas de diseno
+
+- El frontend no habla directo con BDNS: pasa por BFF para reducir acoplamiento.
+- La configuracion sensible vive en variables de entorno.
+- El diseno de capas deja base para evolucion futura (mas canales, multi-tenant, etc.).

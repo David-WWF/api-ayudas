@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 
+// Estructura minima de una convocatoria incluida en el resumen.
 type DigestItem = {
   id: string;
   title: string;
@@ -8,12 +9,14 @@ type DigestItem = {
   sourceUrl: string | null;
 };
 
+// Agrupa las novedades por perfil de alerta.
 type DigestProfile = {
   profileId: number;
   profileName: string;
   newItems: DigestItem[];
 };
 
+// Datos de entrada que recibe el canal email para el envio semanal.
 type SendWeeklyDigestInput = {
   runId: string;
   runAtIso: string;
@@ -26,6 +29,8 @@ export type SendWeeklyDigestResult = {
 };
 
 function parseRecipients(): string[] {
+  // ALERT_RECIPIENTS admite lista separada por comas:
+  // "persona1@dominio.com,persona2@dominio.com"
   const raw = process.env.ALERT_RECIPIENTS ?? "";
   return raw
     .split(",")
@@ -34,6 +39,7 @@ function parseRecipients(): string[] {
 }
 
 function escapeHtml(value: string): string {
+  // Escapamos campos dinamicos para evitar HTML invalido o inyecciones.
   return value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -43,6 +49,7 @@ function escapeHtml(value: string): string {
 }
 
 function buildTextBody(input: SendWeeklyDigestInput): string {
+  // Version texto plano del resumen (util para clientes sin HTML).
   const lines: string[] = [];
   lines.push("Resumen semanal de alertas - api-ayudas");
   lines.push(`Run ID: ${input.runId}`);
@@ -68,6 +75,7 @@ function buildTextBody(input: SendWeeklyDigestInput): string {
 }
 
 function buildHtmlBody(input: SendWeeklyDigestInput): string {
+  // Version HTML del resumen, mas legible para la mayoria de clientes.
   const sections = input.profiles
     .map((profile) => {
       const items = profile.newItems
@@ -111,12 +119,14 @@ function buildHtmlBody(input: SendWeeklyDigestInput): string {
 export async function sendWeeklyDigestEmail(
   input: SendWeeklyDigestInput
 ): Promise<SendWeeklyDigestResult> {
+  // Si no hay novedades no intentamos enviar porque este canal exige contenido.
   if (input.profiles.length === 0) {
     return { status: "error", message: "Sin perfiles con novedades." };
   }
 
 
   const recipients = parseRecipients();
+  // Este proyecto considera email obligatorio: sin destinatarios es error.
   if (recipients.length === 0) {
     return { status: "error", message: "No hay destinatarios en ALERT_RECIPIENTS." };
   }
@@ -128,6 +138,7 @@ export async function sendWeeklyDigestEmail(
   const from = process.env.SMTP_FROM ?? "";
   const secure = process.env.SMTP_SECURE === "true";
 
+  // Validacion temprana para fallar con un mensaje claro de configuracion.
   if (!host || !port || !user || !pass || !from) {
     return {
       status: "error",
@@ -136,6 +147,7 @@ export async function sendWeeklyDigestEmail(
   }
 
   try {
+    // Configura el transporte SMTP real (Brevo, Mailgun, SMTP propio, etc.).
     const transporter = nodemailer.createTransport({
       host,
       port,
@@ -145,6 +157,7 @@ export async function sendWeeklyDigestEmail(
 
     const subject = `[api-ayudas] Resumen semanal (${input.profiles.length} perfiles con novedades)`;
 
+    // Enviamos una unica pieza a todos los destinatarios configurados.
     await transporter.sendMail({
       from,
       to: recipients.join(","),
@@ -153,11 +166,13 @@ export async function sendWeeklyDigestEmail(
       html: buildHtmlBody(input),
     });
 
+    // Estado estandar para que el runner pueda persistirlo en historial.
     return {
       status: "sent",
       message: `Email enviado a ${recipients.length} destinatario(s).`,
     };
   } catch (error) {
+    // Nunca rompemos el contrato: devolvemos status + mensaje de error.
     return {
       status: "error",
       message: error instanceof Error ? error.message : "Error SMTP desconocido.",

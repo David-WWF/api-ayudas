@@ -4,6 +4,7 @@ import { searchGrants, type GrantItem } from "@/lib/bdns/client";
 import { sendWeeklyDigestEmail } from "./mailer";
 import { sendWeeklyDigestTelegram } from "./telegram";
 
+// Filtros persistidos en DB para cada perfil de alerta.
 type AlertFilters = {
   searchText: string;
   tipoAdministracion: "C" | "A" | "L" | "O" | null;
@@ -22,6 +23,7 @@ type AlertFilters = {
   direccion: "asc" | "desc";
 };
 
+// Modelo interno de perfil activo en memoria.
 type AlertProfile = {
   id: number;
   name: string;
@@ -49,6 +51,7 @@ export type WeeklyRunResult = {
   profileSummaries: ProfileRunSummary[];
 };
 
+// Candado en memoria para evitar ejecuciones simultaneas en el mismo proceso.
 let weeklyRunInProgress = false;
 
 export class WeeklyRunAlreadyRunningError extends Error {
@@ -76,6 +79,7 @@ const ALLOWED_ORDER = [
 ] as const;
 
 function normalizeFilters(input: unknown): AlertFilters {
+  // Sanitiza JSON libre de DB/API a un shape controlado por TypeScript.
   const body = (input ?? {}) as Record<string, unknown>;
 
   const tipoAdministracion =
@@ -109,6 +113,7 @@ function normalizeFilters(input: unknown): AlertFilters {
 }
 
 function mapProfileRow(row: Record<string, unknown>): AlertProfile {
+  // Mapea fila SQL a modelo de dominio.
   return {
     id: Number(row.id),
     name: String(row.name ?? ""),
@@ -118,6 +123,7 @@ function mapProfileRow(row: Record<string, unknown>): AlertProfile {
 }
 
 async function ensureTables() {
+  // Tabla de perfiles de alertas configurables.
   await db.query(`
     CREATE TABLE IF NOT EXISTS alert_profiles (
       id SERIAL PRIMARY KEY,
@@ -130,6 +136,7 @@ async function ensureTables() {
     )
   `);
 
+  // Snapshot por perfil para deduplicar convocatorias ya vistas.
   await db.query(`
     CREATE TABLE IF NOT EXISTS grants_snapshot (
       profile_id INTEGER NOT NULL,
@@ -143,6 +150,7 @@ async function ensureTables() {
     )
   `);
 
+  // Historial auditable de cada corrida/perfil.
   await db.query(`
     CREATE TABLE IF NOT EXISTS alerts_history (
       id SERIAL PRIMARY KEY,
@@ -159,6 +167,7 @@ async function ensureTables() {
 }
 
 async function getActiveProfiles(): Promise<AlertProfile[]> {
+  // Solo perfiles habilitados; orden estable por fecha de creacion.
   const result = await db.query(`
     SELECT id, name, enabled, filters_json
     FROM alert_profiles
@@ -170,6 +179,7 @@ async function getActiveProfiles(): Promise<AlertProfile[]> {
 }
 
 function toUniqueGrantIds(items: GrantItem[]): string[] {
+  // Elimina ids vacios y repetidos antes de consultar snapshot.
   const ids = items.map((i) => i.id).filter((id) => id && id.trim().length > 0);
   return [...new Set(ids)];
 }
@@ -191,6 +201,7 @@ async function getKnownIds(profileId: number, grantIds: string[]): Promise<Set<s
 }
 
 async function upsertSnapshot(profileId: number, items: GrantItem[]) {
+  // Upsert item a item para conservar first_seen_at y actualizar last_seen_at.
   for (const item of items) {
     await db.query(
       `
@@ -211,6 +222,7 @@ async function upsertSnapshot(profileId: number, items: GrantItem[]) {
 }
 
 function toSearchParams(filters: AlertFilters) {
+  // Traduce filtros internos al contrato del cliente BDNS.
   return {
     q: filters.searchText || undefined,
     page: 1,
@@ -225,11 +237,13 @@ function toSearchParams(filters: AlertFilters) {
 }
 
 function getTimeoutMs(): number {
+  // Timeout configurable por entorno con fallback seguro.
   const raw = Number(process.env.ALERTS_CHANNEL_TIMEOUT_MS ?? "15000");
   return Number.isFinite(raw) && raw > 0 ? raw : 15000;
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  // Protege cada canal para que uno lento no bloquee toda la corrida.
   return new Promise((resolve, reject) => {
     const id = setTimeout(() => reject(new Error(`Timeout en canal ${label} (${ms}ms)`)), ms);
 
@@ -257,6 +271,7 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
 
     const runId = randomUUID();
 
+    // 1) Carga perfiles activos.
     const profiles = await getActiveProfiles();
 
     console.info(
@@ -275,15 +290,19 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
     }> = [];
 
     for (const profile of profiles) {
+      // 2) Ejecuta busqueda BDNS por perfil.
       const result = await searchGrants(toSearchParams(profile.filters));
       const ids = toUniqueGrantIds(result.items);
       const knownIds = await getKnownIds(profile.id, ids);
 
+      // 3) Detecta solo novedades comparando contra snapshot.
       const newItems = result.items.filter((item) => !knownIds.has(item.id));
+      // 4) Actualiza snapshot completo para la siguiente corrida.
       await upsertSnapshot(profile.id, result.items);
 
       const status = newItems.length > 0 ? "pending_dispatch" : "no_news";
 
+      // 5) Inserta trazabilidad por perfil antes del envio.
       await db.query(
         `
         INSERT INTO alerts_history (
@@ -316,6 +335,7 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
     let dispatchStatus: "sent_both" | "sent_partial" | "error_both" | "no_news" = "no_news";
 
     if (digestProfiles.length === 0) {
+      // Sin novedades: corrida valida, no se envian canales.
       emailStatus = "sent";
       telegramStatus = "sent";
       emailMessage = "Sin novedades: no se requiere envio.";
@@ -330,6 +350,7 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
 
       const timeoutMs = getTimeoutMs();
 
+      // 6) Envia ambos canales en paralelo con timeout por canal.
       const [emailResult, telegramResult] = await Promise.all([
         withTimeout(sendWeeklyDigestEmail(payload), timeoutMs, "email"),
         withTimeout(sendWeeklyDigestTelegram(payload), timeoutMs, "telegram"),
@@ -353,6 +374,7 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
       if (telegramStatus === "error") errorParts.push(`telegram: ${telegramMessage}`);
       const combinedError = errorParts.length > 0 ? errorParts.join(" | ") : null;
 
+      // 7) Cierra estados pendientes con resultado consolidado.
       await db.query(
         `
           UPDATE alerts_history
@@ -396,6 +418,7 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
     };
   }
   catch (error) {
+    // Log estructurado para observabilidad y troubleshooting.
     console.error(
       JSON.stringify({
         event: "weekly_run_error",
@@ -406,6 +429,7 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
     throw error;
   }
   finally {
+    // Libera candado aunque haya error para no dejar el job bloqueado.
     weeklyRunInProgress = false;
   }
 }

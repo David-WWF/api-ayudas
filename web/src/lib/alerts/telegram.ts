@@ -6,12 +6,14 @@ type DigestItem = {
   sourceUrl: string | null;
 };
 
+// Agrupacion de novedades por perfil para renderizar mensajes compactos.
 type DigestProfile = {
   profileId: number;
   profileName: string;
   newItems: DigestItem[];
 };
 
+// Contrato de entrada compartido con el resto de canales.
 type SendWeeklyDigestInput = {
   runId: string;
   runAtIso: string;
@@ -27,11 +29,13 @@ const TELEGRAM_SAFE_LIMIT = 3500;
 const MAX_ITEMS_PER_PROFILE = 10;
 
 function truncate(value: string, max = 120): string {
+  // Telegram tiene limite de caracteres; truncamos campos largos.
   if (value.length <= max) return value;
   return `${value.slice(0, max - 3)}...`;
 }
 
 function splitByBlocks(header: string, blocks: string[], limit: number): string[] {
+  // Construye chunks preservando bloques enteros por perfil para mejorar legibilidad.
   const chunks: string[] = [];
   let current = header;
 
@@ -63,6 +67,7 @@ function splitByBlocks(header: string, blocks: string[], limit: number): string[
 }
 
 function buildTelegramMessages(input: SendWeeklyDigestInput): string[] {
+  // Cabecera de contexto para identificar corrida, fecha y volumen.
   const totalNew = input.profiles.reduce((acc, p) => acc + p.newItems.length, 0);
 
   const header = [
@@ -85,6 +90,7 @@ function buildTelegramMessages(input: SendWeeklyDigestInput): string[] {
     lines.push("");
 
     const shown = profile.newItems.slice(0, MAX_ITEMS_PER_PROFILE);
+    // Limitamos items por perfil para no saturar Telegram.
 
     shown.forEach((item, index) => {
       lines.push(`${index + 1}) ${truncate(item.title, 140)}`);
@@ -96,6 +102,7 @@ function buildTelegramMessages(input: SendWeeklyDigestInput): string[] {
     });
 
     if (profile.newItems.length > shown.length) {
+      // Indicamos que hay mas detalle en email.
       lines.push(
         `... y ${profile.newItems.length - shown.length} mas (ver email para detalle completo).`
       );
@@ -113,6 +120,7 @@ async function sendTelegramMessage(
   chatId: string,
   text: string
 ): Promise<void> {
+  // Llamada directa a la API HTTP de Telegram Bot.
   const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
 
   const response = await fetch(url, {
@@ -139,6 +147,7 @@ export async function sendWeeklyDigestTelegram(
   const chatId = process.env.TELEGRAM_CHAT_ID?.trim() ?? "";
 
   if (!botToken || !chatId) {
+    // Canal obligatorio: faltan credenciales, se reporta error.
     return {
       status: "error",
       message: "Falta TELEGRAM_BOT_TOKEN o TELEGRAM_CHAT_ID.",
@@ -146,6 +155,7 @@ export async function sendWeeklyDigestTelegram(
   }
 
   if (input.profiles.length === 0) {
+    // Sin novedades consideramos envio correcto sin mensajes de detalle.
     return {
       status: "sent",
       message: "Sin novedades; no hubo mensajes de detalle para Telegram.",
@@ -154,6 +164,7 @@ export async function sendWeeklyDigestTelegram(
 
   try {
     const messages = buildTelegramMessages(input);
+    // Enviamos secuencialmente para mantener orden natural de lectura.
     for (const message of messages) {
       await sendTelegramMessage(botToken, chatId, message);
     }
@@ -163,6 +174,7 @@ export async function sendWeeklyDigestTelegram(
       message: `Telegram enviado en ${messages.length} mensaje(s).`,
     };
   } catch (error) {
+    // Error controlado para que el runner lo consolide en historial.
     return {
       status: "error",
       message: error instanceof Error ? error.message : "Error desconocido enviando Telegram.",

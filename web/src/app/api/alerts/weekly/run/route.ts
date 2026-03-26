@@ -7,6 +7,7 @@ import {
 
 export const runtime = "nodejs";
 
+// Rate limit en memoria para evitar spam de ejecuciones manuales.
 let lastRunRequestAt = 0;
 const MIN_INTERVAL_MS = 10_000; // 10s entre ejecuciones manuales
 
@@ -20,6 +21,7 @@ function isAuthorized(request: NextRequest): boolean {
 
 export async function POST(request: NextRequest) {
   try {
+    // Control de acceso simple por secreto compartido via header.
     if (!isAuthorized(request)) {
       return NextResponse.json(
         { ok: false, error: "No autorizado para ejecutar el job semanal." },
@@ -47,6 +49,7 @@ export async function POST(request: NextRequest) {
     }
 
     console.info(JSON.stringify({ event: "weekly_run_http_requested" }));
+    // Delega toda la logica de negocio al runner central.
     const data = await runWeeklyAlerts();
     return NextResponse.json({ ok: true, data });
   } catch (error) {
@@ -74,6 +77,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET() {
+  // Endpoint de estado simple para UI/healthchecks.
   return NextResponse.json({
     ok: true,
     inProgress: isWeeklyRunInProgress(),
