@@ -21,7 +21,7 @@ type SendWeeklyDigestInput = {
 };
 
 export type SendWeeklyDigestResult = {
-  status: "sent" | "skipped" | "error";
+  status: "sent" | "error";
   message: string;
 };
 
@@ -112,16 +112,13 @@ export async function sendWeeklyDigestEmail(
   input: SendWeeklyDigestInput
 ): Promise<SendWeeklyDigestResult> {
   if (input.profiles.length === 0) {
-    return { status: "skipped", message: "Sin perfiles con novedades." };
+    return { status: "error", message: "Sin perfiles con novedades." };
   }
 
-  if (process.env.ALERTS_EMAIL_ENABLED !== "true") {
-    return { status: "skipped", message: "ALERTS_EMAIL_ENABLED=false (envío desactivado)." };
-  }
 
   const recipients = parseRecipients();
   if (recipients.length === 0) {
-    return { status: "skipped", message: "No hay destinatarios en ALERT_RECIPIENTS." };
+    return { status: "error", message: "No hay destinatarios en ALERT_RECIPIENTS." };
   }
 
   const host = process.env.SMTP_HOST ?? "";

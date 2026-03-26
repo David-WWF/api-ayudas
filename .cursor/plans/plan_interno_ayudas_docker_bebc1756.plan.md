@@ -13,10 +13,10 @@ todos:
     status: completed
   - id: bloque-4-config-alertas
     content: Crear configuración interna multi-alerta (perfiles) y destinatarios fijos.
-    status: in_progress
+    status: completed
   - id: bloque-5-alerta-semanal
-    content: Implementar job semanal multi-perfil con deduplicación y envío de email resumen.
-    status: pending
+    content: Implementar job semanal multi-perfil con deduplicación y envío duplicado (email + Telegram), incluyendo configuración guiada desde cero de ambos canales.
+    status: completed
   - id: bloque-6-hardening
     content: Aplicar validaciones, logs y ajustes de rendimiento para uso interno.
     status: pending
@@ -29,6 +29,7 @@ isProject: false
 
 - Lo construiremos en modo **pair programming guiado**: tú implementas y yo te doy instrucciones, explicación del porqué y código completo en cada paso.
 - No editaré código por mi cuenta salvo que me lo pidas explícitamente.
+- No asumiré conocimientos previos sobre servicios externos (SMTP/Telegram): antes de cada integración se explicarán prerequisitos y configuración guiada paso a paso.
 - Cada bloque incluirá:
   - objetivo,
   - concepto técnico que estás aprendiendo,
@@ -43,6 +44,7 @@ Aplicación web interna para:
 - Buscar convocatorias de ayudas/subvenciones a empresas.
 - Filtrar y consultar detalle.
 - Enviar alertas **semanales** por email con resultados nuevos según múltiples perfiles de filtros.
+- Enviar alertas **semanales duplicadas** por **email y Telegram** con resultados nuevos según múltiples perfiles de filtros.
 
 Fuente principal: BDNS ([https://www.pap.hacienda.gob.es/bdnstrans/GE/es/doc](https://www.pap.hacienda.gob.es/bdnstrans/GE/es/doc)).
 
@@ -74,7 +76,7 @@ flowchart LR
 - Motor de alertas semanal que:
   - ejecuta búsqueda por perfil,
   - detecta novedades por perfil,
-  - envía un email resumen a lista fija.
+  - envía un resumen **por email y Telegram** a configuración interna fija.
 
 ## Diferenciación frente al portal BDNS (valor añadido)
 
@@ -140,18 +142,55 @@ Tablas mínimas sugeridas (enfoque multi-alerta):
 
 - Job semanal (cron) que consulta BDNS para cada perfil activo.
 - Detección de nuevas convocatorias respecto a `grants_snapshot` por perfil.
-- Registro en `alerts_history` y envío de email resumen por perfil (o consolidado).
+- Registro en `alerts_history` y envío **duplicado** por canales:
+  - email resumen,
+  - Telegram resumen.
+- Subfase previa obligatoria de preparación de canales:
+  - Crear bot de Telegram y obtener `TELEGRAM_BOT_TOKEN`.
+  - Obtener `TELEGRAM_CHAT_ID` de destino (chat personal o grupo interno).
+  - Elegir proveedor SMTP (opción simple recomendada) y generar credenciales.
+  - Configurar y validar variables en `docker-compose.yml`.
+  - Probar cada canal por separado antes de la prueba integrada.
 - El email prioriza valor operativo:
   - destacar nuevas convocatorias relevantes por perfil,
   - reducir ruido con deduplicación y resumen corto accionable.
+- Telegram mantiene el mismo contenido operativo, adaptado al límite de longitud:
+  - cabecera de ejecución + bloques por perfil,
+  - partición automática en varios mensajes cuando sea necesario,
+  - truncado controlado de títulos largos para legibilidad.
+
+#### Bloque 5 - Checklist operativo de configuración (paso a paso)
+
+1. **Telegram base**
+  - Crear bot con BotFather.
+  - Guardar token del bot en entorno seguro.
+  - Definir chat destino (usuario o grupo) y recuperar chat ID.
+  - Ejecutar prueba mínima de envío directo a la API de Telegram.
+2. **SMTP base**
+  - Elegir proveedor SMTP para entorno interno.
+  - Generar usuario/clave SMTP (o API key SMTP).
+  - Definir remitente válido (`SMTP_FROM`) según proveedor.
+  - Probar conexión SMTP y envío de mensaje simple.
+3. **Integración en entorno local**
+  - Cargar variables de ambos canales en `docker-compose.yml`.
+  - Reiniciar servicio `app`.
+  - Ejecutar endpoint manual de alertas y verificar estado por canal:
+    - `emailStatus`
+    - `telegramStatus`
+    - `dispatchStatus`
+4. **Criterios de aceptación del bloque**
+  - El sistema envía por email y Telegram en la misma ejecución.
+  - Si un canal falla, el otro no se bloquea.
+  - El histórico refleja estado final y mensaje de error por ejecución.
 
 ## Estado actual resumido
 
 - Bloque 1: **Completado**.
 - Bloque 2: **Completado**.
 - Bloque 3: **Completado** (buscador con filtros, detalle en modal, persistencia de perfil base).
-- Bloque 4: **En progreso** (migración de perfil único a multi-alerta).
-- Bloque 5-7: **Pendiente**.
+- Bloque 4: **Completado** (multi-alerta operativa en modal con CRUD básico).
+- Bloque 5: **Completado** (job semanal con deduplicación y envío duplicado email + Telegram validado).
+- Bloque 6-7: **Pendiente**.
 
 ### Bloque 6 - Hardening para uso interno
 

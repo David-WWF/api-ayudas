@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { db } from "@/lib/db";
 import { searchGrants, type GrantItem } from "@/lib/bdns/client";
 import { sendWeeklyDigestEmail } from "./mailer";
+import { sendWeeklyDigestTelegram } from "./telegram";
 
 type AlertFilters = {
   searchText: string;
@@ -10,14 +11,14 @@ type AlertFilters = {
   fechaDesde: string | null;
   fechaHasta: string | null;
   orderBy:
-    | "numeroConvocatoria"
-    | "mrr"
-    | "nivel1"
-    | "nivel2"
-    | "nivel3"
-    | "fechaRecepcion"
-    | "descripcion"
-    | "descripcionLeng";
+  | "numeroConvocatoria"
+  | "mrr"
+  | "nivel1"
+  | "nivel2"
+  | "nivel3"
+  | "fechaRecepcion"
+  | "descripcion"
+  | "descripcionLeng";
   direccion: "asc" | "desc";
 };
 
@@ -40,8 +41,11 @@ export type WeeklyRunResult = {
   processedProfiles: number;
   profilesWithNews: number;
   totalNewItems: number;
-  emailStatus: "sent" | "skipped" | "error";
+  emailStatus: "sent" | "error";
   emailMessage: string;
+  telegramStatus: "sent" | "error";
+  telegramMessage: string;
+  dispatchStatus: "sent_both" | "sent_partial" | "error_both" | "no_news";
   profileSummaries: ProfileRunSummary[];
 };
 
@@ -63,13 +67,13 @@ function normalizeFilters(input: unknown): AlertFilters {
 
   const tipoAdministracion =
     typeof body.tipoAdministracion === "string" &&
-    (ALLOWED_TIPO_ADMIN as readonly string[]).includes(body.tipoAdministracion)
+      (ALLOWED_TIPO_ADMIN as readonly string[]).includes(body.tipoAdministracion)
       ? (body.tipoAdministracion as AlertFilters["tipoAdministracion"])
       : null;
 
   const orderBy =
     typeof body.orderBy === "string" &&
-    (ALLOWED_ORDER as readonly string[]).includes(body.orderBy)
+      (ALLOWED_ORDER as readonly string[]).includes(body.orderBy)
       ? (body.orderBy as AlertFilters["orderBy"])
       : "fechaRecepcion";
 
@@ -228,7 +232,7 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
     const newItems = result.items.filter((item) => !knownIds.has(item.id));
     await upsertSnapshot(profile.id, result.items);
 
-    const status = newItems.length > 0 ? "pending_email" : "no_news";
+    const status = newItems.length > 0 ? "pending_dispatch" : "no_news";
 
     await db.query(
       `
@@ -256,50 +260,59 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
     }
   }
 
-  let emailStatus: "sent" | "skipped" | "error" = "skipped";
-  let emailMessage = "No hay novedades para enviar.";
+  let emailStatus: "sent" | "error" = "error";
+  let emailMessage = "No ejecutado.";
+  let telegramStatus: "sent" | "error" = "error";
+  let telegramMessage = "No ejecutado.";
+  let dispatchStatus: "sent_both" | "sent_partial" | "error_both" | "no_news" = "no_news";
 
-  if (digestProfiles.length > 0) {
-    const emailResult = await sendWeeklyDigestEmail({
+  if (digestProfiles.length === 0) {
+    emailStatus = "sent";
+    telegramStatus = "sent";
+    emailMessage = "Sin novedades: no se requiere envio.";
+    telegramMessage = "Sin novedades: no se requiere envio.";
+    dispatchStatus = "no_news";
+  } else {
+    const payload = {
       runId,
       runAtIso: new Date().toISOString(),
       profiles: digestProfiles,
-    });
+    };
 
-    emailStatus = emailResult.status;
+    const [emailResult, telegramResult] = await Promise.all([
+      sendWeeklyDigestEmail(payload),
+      sendWeeklyDigestTelegram(payload),
+    ]);
+
+    emailStatus = emailResult.status === "sent" ? "sent" : "error";
     emailMessage = emailResult.message;
+    telegramStatus = telegramResult.status === "sent" ? "sent" : "error";
+    telegramMessage = telegramResult.message;
 
-    if (emailResult.status === "sent") {
-      await db.query(
-        `
-          UPDATE alerts_history
-          SET status = 'sent'
-          WHERE run_id = $1
-            AND status = 'pending_email'
-        `,
-        [runId]
-      );
-    } else if (emailResult.status === "skipped") {
-      await db.query(
-        `
-          UPDATE alerts_history
-          SET status = 'email_skipped', error_message = $2
-          WHERE run_id = $1
-            AND status = 'pending_email'
-        `,
-        [runId, emailResult.message]
-      );
+    if (emailStatus === "sent" && telegramStatus === "sent") {
+      dispatchStatus = "sent_both";
+    } else if (emailStatus === "error" && telegramStatus === "error") {
+      dispatchStatus = "error_both";
     } else {
-      await db.query(
-        `
-          UPDATE alerts_history
-          SET status = 'email_error', error_message = $2
-          WHERE run_id = $1
-            AND status = 'pending_email'
-        `,
-        [runId, emailResult.message]
-      );
+      dispatchStatus = "sent_partial";
     }
+
+    const errorParts: string[] = [];
+    if (emailStatus === "error") errorParts.push(`email: ${emailMessage}`);
+    if (telegramStatus === "error") errorParts.push(`telegram: ${telegramMessage}`);
+    const combinedError = errorParts.length > 0 ? errorParts.join(" | ") : null;
+
+    await db.query(
+      `
+      UPDATE alerts_history
+      SET
+        status = $2,
+        error_message = $3
+      WHERE run_id = $1
+        AND status = 'pending_dispatch'
+    `,
+      [runId, dispatchStatus, combinedError]
+    );
   }
 
   const profilesWithNews = profileSummaries.filter((p) => p.newItemsCount > 0).length;
@@ -312,6 +325,9 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
     totalNewItems,
     emailStatus,
     emailMessage,
+    telegramStatus,
+    telegramMessage,
+    dispatchStatus,
     profileSummaries,
   };
 }
