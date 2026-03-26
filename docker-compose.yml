@@ -38,5 +38,21 @@ services:
       timeout: 5s
       retries: 10
 
+  scheduler:
+    image: alpine:3.20
+    container_name: ayudas_scheduler
+    env_file:
+      - ./web/.env.local
+    depends_on:
+      - app
+    command: >
+      sh -c "
+      apk add --no-cache curl tzdata &&
+      ln -sf /usr/share/zoneinfo/$$TZ /etc/localtime &&
+      echo \"$$TZ\" > /etc/timezone &&
+      echo \"$$ALERTS_AUTORUN_CRON curl -sS -X POST -H 'x-alerts-secret: $$ALERTS_RUN_SECRET' $$APP_INTERNAL_URL/api/alerts/weekly/run >/proc/1/fd/1 2>/proc/1/fd/2\" > /etc/crontabs/root &&
+      crond -f -l 8
+      "
+
 volumes:
   postgres_data:
