@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runWeeklyAlerts } from "@/lib/alerts/weekly-runner";
+import {
+  runWeeklyAlerts,
+  isWeeklyRunInProgress,
+  WeeklyRunAlreadyRunningError,
+} from "@/lib/alerts/weekly-runner";
 
 export const runtime = "nodejs";
 
@@ -23,6 +27,12 @@ export async function POST(request: NextRequest) {
     const data = await runWeeklyAlerts();
     return NextResponse.json({ ok: true, data });
   } catch (error) {
+    if (error instanceof WeeklyRunAlreadyRunningError) {
+      return NextResponse.json(
+        { ok: false, error: error.message },
+        { status: 409 }
+      );
+    }
     return NextResponse.json(
       {
         ok: false,
@@ -36,6 +46,7 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   return NextResponse.json({
     ok: true,
+    inProgress: isWeeklyRunInProgress(),
     message: "Usa POST para ejecutar el job semanal de alertas.",
   });
 }

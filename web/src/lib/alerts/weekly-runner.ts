@@ -49,6 +49,19 @@ export type WeeklyRunResult = {
   profileSummaries: ProfileRunSummary[];
 };
 
+let weeklyRunInProgress = false;
+
+export class WeeklyRunAlreadyRunningError extends Error {
+  constructor() {
+    super("Ya hay una ejecución semanal en curso.");
+    this.name = "WeeklyRunAlreadyRunningError";
+  }
+}
+
+export function isWeeklyRunInProgress(): boolean {
+  return weeklyRunInProgress;
+}
+
 const DEFAULT_PAGE_SIZE = 40;
 const ALLOWED_TIPO_ADMIN = ["C", "A", "L", "O"] as const;
 const ALLOWED_ORDER = [
@@ -212,122 +225,131 @@ function toSearchParams(filters: AlertFilters) {
 }
 
 export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
-  await ensureTables();
+  if (weeklyRunInProgress) {
+    throw new WeeklyRunAlreadyRunningError();
+  }
 
-  const runId = randomUUID();
-  const profiles = await getActiveProfiles();
+  weeklyRunInProgress = true;
+  try {
+    await ensureTables();
 
-  const profileSummaries: ProfileRunSummary[] = [];
-  const digestProfiles: Array<{
-    profileId: number;
-    profileName: string;
-    newItems: GrantItem[];
-  }> = [];
+    const runId = randomUUID();
+    const profiles = await getActiveProfiles();
 
-  for (const profile of profiles) {
-    const result = await searchGrants(toSearchParams(profile.filters));
-    const ids = toUniqueGrantIds(result.items);
-    const knownIds = await getKnownIds(profile.id, ids);
+    const profileSummaries: ProfileRunSummary[] = [];
+    const digestProfiles: Array<{
+      profileId: number;
+      profileName: string;
+      newItems: GrantItem[];
+    }> = [];
 
-    const newItems = result.items.filter((item) => !knownIds.has(item.id));
-    await upsertSnapshot(profile.id, result.items);
+    for (const profile of profiles) {
+      const result = await searchGrants(toSearchParams(profile.filters));
+      const ids = toUniqueGrantIds(result.items);
+      const knownIds = await getKnownIds(profile.id, ids);
 
-    const status = newItems.length > 0 ? "pending_dispatch" : "no_news";
+      const newItems = result.items.filter((item) => !knownIds.has(item.id));
+      await upsertSnapshot(profile.id, result.items);
 
-    await db.query(
-      `
+      const status = newItems.length > 0 ? "pending_dispatch" : "no_news";
+
+      await db.query(
+        `
         INSERT INTO alerts_history (
           run_id, profile_id, profile_name, new_items_count, status, payload_json
         )
         VALUES ($1, $2, $3, $4, $5, $6::jsonb)
       `,
-      [runId, profile.id, profile.name, newItems.length, status, JSON.stringify(newItems)]
-    );
+        [runId, profile.id, profile.name, newItems.length, status, JSON.stringify(newItems)]
+      );
 
-    profileSummaries.push({
-      profileId: profile.id,
-      profileName: profile.name,
-      totalFetched: result.items.length,
-      newItemsCount: newItems.length,
-    });
-
-    if (newItems.length > 0) {
-      digestProfiles.push({
+      profileSummaries.push({
         profileId: profile.id,
         profileName: profile.name,
-        newItems,
+        totalFetched: result.items.length,
+        newItemsCount: newItems.length,
       });
+
+      if (newItems.length > 0) {
+        digestProfiles.push({
+          profileId: profile.id,
+          profileName: profile.name,
+          newItems,
+        });
+      }
     }
-  }
+    let emailStatus: "sent" | "error" = "error";
+    let emailMessage = "No ejecutado.";
+    let telegramStatus: "sent" | "error" = "error";
+    let telegramMessage = "No ejecutado.";
+    let dispatchStatus: "sent_both" | "sent_partial" | "error_both" | "no_news" = "no_news";
 
-  let emailStatus: "sent" | "error" = "error";
-  let emailMessage = "No ejecutado.";
-  let telegramStatus: "sent" | "error" = "error";
-  let telegramMessage = "No ejecutado.";
-  let dispatchStatus: "sent_both" | "sent_partial" | "error_both" | "no_news" = "no_news";
-
-  if (digestProfiles.length === 0) {
-    emailStatus = "sent";
-    telegramStatus = "sent";
-    emailMessage = "Sin novedades: no se requiere envio.";
-    telegramMessage = "Sin novedades: no se requiere envio.";
-    dispatchStatus = "no_news";
-  } else {
-    const payload = {
-      runId,
-      runAtIso: new Date().toISOString(),
-      profiles: digestProfiles,
-    };
-
-    const [emailResult, telegramResult] = await Promise.all([
-      sendWeeklyDigestEmail(payload),
-      sendWeeklyDigestTelegram(payload),
-    ]);
-
-    emailStatus = emailResult.status === "sent" ? "sent" : "error";
-    emailMessage = emailResult.message;
-    telegramStatus = telegramResult.status === "sent" ? "sent" : "error";
-    telegramMessage = telegramResult.message;
-
-    if (emailStatus === "sent" && telegramStatus === "sent") {
-      dispatchStatus = "sent_both";
-    } else if (emailStatus === "error" && telegramStatus === "error") {
-      dispatchStatus = "error_both";
+    if (digestProfiles.length === 0) {
+      emailStatus = "sent";
+      telegramStatus = "sent";
+      emailMessage = "Sin novedades: no se requiere envio.";
+      telegramMessage = "Sin novedades: no se requiere envio.";
+      dispatchStatus = "no_news";
     } else {
-      dispatchStatus = "sent_partial";
+      const payload = {
+        runId,
+        runAtIso: new Date().toISOString(),
+        profiles: digestProfiles,
+      };
+
+      const [emailResult, telegramResult] = await Promise.all([
+        sendWeeklyDigestEmail(payload),
+        sendWeeklyDigestTelegram(payload),
+      ]);
+
+      emailStatus = emailResult.status === "sent" ? "sent" : "error";
+      emailMessage = emailResult.message;
+      telegramStatus = telegramResult.status === "sent" ? "sent" : "error";
+      telegramMessage = telegramResult.message;
+
+      if (emailStatus === "sent" && telegramStatus === "sent") {
+        dispatchStatus = "sent_both";
+      } else if (emailStatus === "error" && telegramStatus === "error") {
+        dispatchStatus = "error_both";
+      } else {
+        dispatchStatus = "sent_partial";
+      }
+
+      const errorParts: string[] = [];
+      if (emailStatus === "error") errorParts.push(`email: ${emailMessage}`);
+      if (telegramStatus === "error") errorParts.push(`telegram: ${telegramMessage}`);
+      const combinedError = errorParts.length > 0 ? errorParts.join(" | ") : null;
+
+      await db.query(
+        `
+          UPDATE alerts_history
+          SET
+            status = $2,
+            error_message = $3
+          WHERE run_id = $1
+            AND status = 'pending_dispatch'
+        `,
+        [runId, dispatchStatus, combinedError]
+      );
     }
 
-    const errorParts: string[] = [];
-    if (emailStatus === "error") errorParts.push(`email: ${emailMessage}`);
-    if (telegramStatus === "error") errorParts.push(`telegram: ${telegramMessage}`);
-    const combinedError = errorParts.length > 0 ? errorParts.join(" | ") : null;
+    const profilesWithNews = profileSummaries.filter((p) => p.newItemsCount > 0).length;
+    const totalNewItems = profileSummaries.reduce((acc, p) => acc + p.newItemsCount, 0);
 
-    await db.query(
-      `
-      UPDATE alerts_history
-      SET
-        status = $2,
-        error_message = $3
-      WHERE run_id = $1
-        AND status = 'pending_dispatch'
-    `,
-      [runId, dispatchStatus, combinedError]
-    );
+    return {
+      runId,
+      processedProfiles: profiles.length,
+      profilesWithNews,
+      totalNewItems,
+      emailStatus,
+      emailMessage,
+      telegramStatus,
+      telegramMessage,
+      dispatchStatus,
+      profileSummaries,
+    };
+  } finally {
+    weeklyRunInProgress = false;
   }
-
-  const profilesWithNews = profileSummaries.filter((p) => p.newItemsCount > 0).length;
-  const totalNewItems = profileSummaries.reduce((acc, p) => acc + p.newItemsCount, 0);
-
-  return {
-    runId,
-    processedProfiles: profiles.length,
-    profilesWithNews,
-    totalNewItems,
-    emailStatus,
-    emailMessage,
-    telegramStatus,
-    telegramMessage,
-    dispatchStatus,
-    profileSummaries,
-  };
 }
+
