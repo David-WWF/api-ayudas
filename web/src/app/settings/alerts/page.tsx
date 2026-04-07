@@ -152,7 +152,7 @@ export default function AlertsSettingsPage() {
     <main style={{ maxWidth: 920, margin: "0 auto", padding: 24 }}>
       <h1 style={{ marginBottom: 12 }}>Gestión de alertas</h1>
       <p style={{ marginBottom: 20 }}>
-        Crea y administra perfiles de alerta semanales (multi-alerta).
+        Crea y administra perfiles de alerta (multi-alerta).
       </p>
 
       <form

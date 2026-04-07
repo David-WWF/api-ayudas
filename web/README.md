@@ -4,13 +4,13 @@ Aplicacion interna construida con Next.js + TypeScript para:
 
 - buscar convocatorias en BDNS,
 - guardar perfiles de alerta en PostgreSQL,
-- ejecutar un job semanal,
+- ejecutar un **job de alertas** según cron (p. ej. diario),
 - enviar avisos duplicados por **email** y **Telegram**.
 
 ## Objetivo funcional
 
 El sistema permite definir varios perfiles de alerta (cada uno con sus filtros).  
-En cada corrida semanal se hace lo siguiente:
+En cada corrida programada (`ALERTS_AUTORUN_CRON`) se hace lo siguiente:
 
 1. Se consulta BDNS por cada perfil activo.
 2. Se comparan resultados contra snapshot historico (`grants_snapshot`) para detectar solo novedades.
@@ -23,11 +23,13 @@ En cada corrida semanal se hace lo siguiente:
 - **UI (Next.js App Router):**
   - Busqueda y filtros.
   - Gestion de perfiles de alertas (modal CRUD).
+  - Gestion de **destinatarios** del resumen: varios emails y varios chat ID de Telegram.
 - **BFF / API interna (Next.js route handlers):**
   - Encapsula llamadas a BDNS.
-  - Gestiona job semanal y endpoints de estado/ejecucion.
+  - Gestiona el job de alertas y endpoints de estado/ejecucion.
 - **Persistencia (PostgreSQL):**
   - `alert_profiles`: configuracion de perfiles.
+  - `notification_recipients`: destinatarios por canal (email / telegram); multiples filas por canal.
   - `grants_snapshot`: deduplicacion por perfil.
   - `alerts_history`: auditoria de ejecuciones.
 - **Servicios externos:**
@@ -35,7 +37,7 @@ En cada corrida semanal se hace lo siguiente:
   - SMTP (envio email).
   - Telegram Bot API (envio Telegram).
 
-## Flujo del job semanal
+## Flujo del job de alertas
 
 Archivo principal: `src/lib/alerts/weekly-runner.ts`
 
@@ -51,6 +53,19 @@ Archivo principal: `src/lib/alerts/weekly-runner.ts`
 - Cada canal se protege con timeout (`ALERTS_CHANNEL_TIMEOUT_MS`) para que no bloquee el job completo.
 - Consolida resultado final y actualiza `alerts_history` pendiente.
 - Escribe logs estructurados JSON para observabilidad.
+
+## Destinatarios (email y Telegram)
+
+- **UI:** modal "Gestionar alertas" → seccion *Destinatarios del resumen*.
+- **API:**
+  - `GET /api/settings/notification-recipients` — listar.
+  - `POST /api/settings/notification-recipients` — crear (`channel`, `address`, `label` opcional, `enabled`).
+  - `PUT /api/settings/notification-recipients/[id]` — actualizar (`enabled`, `label`, `address`, `channel`).
+  - `DELETE /api/settings/notification-recipients/[id]` — borrar.
+
+**Prioridad:** para cada canal, si en BD hay al menos un destinatario con `enabled = true`, el job usa **solo** esas direcciones. Si la lista activa en BD esta vacia, se usa el **fallback** del `.env` (`ALERT_RECIPIENTS` como lista separada por comas, `TELEGRAM_CHAT_ID` para un unico chat).
+
+Los secretos del bot (`TELEGRAM_BOT_TOKEN`) y del SMTP no se guardan en esta tabla.
 
 ## Endpoint manual del job
 
@@ -78,9 +93,10 @@ Definidas en `web/.env.local` (no versionado):
 - **Job y seguridad**
   - `ALERTS_RUN_SECRET`
   - `ALERTS_AUTORUN_CRON`
+  - `ALERTS_DIGEST_PERIOD` (etiqueta en email/Telegram/asunto; por defecto `diario`, p. ej. `semanal` si cambias el cron)
   - `ALERTS_CHANNEL_TIMEOUT_MS`
 - **Email (SMTP)**
-  - `ALERT_RECIPIENTS`
+  - `ALERT_RECIPIENTS` (fallback si no hay emails activos en `notification_recipients`)
   - `SMTP_HOST`
   - `SMTP_PORT`
   - `SMTP_SECURE`
@@ -89,7 +105,7 @@ Definidas en `web/.env.local` (no versionado):
   - `SMTP_FROM`
 - **Telegram**
   - `TELEGRAM_BOT_TOKEN`
-  - `TELEGRAM_CHAT_ID`
+  - `TELEGRAM_CHAT_ID` (fallback si no hay filas `telegram` activas en BD)
 
 ## Ejecucion en local con Docker
 
@@ -103,7 +119,7 @@ Servicios esperados:
 
 - `db`: PostgreSQL
 - `app`: Next.js
-- `scheduler`: ejecuta cron y dispara endpoint semanal
+- `scheduler`: ejecuta cron y dispara el endpoint del job
 
 ## Ejecucion manual del job
 

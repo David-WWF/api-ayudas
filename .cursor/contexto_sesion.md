@@ -1,58 +1,38 @@
 # Contexto de sesion - api-ayudas
 
-Fecha: 2026-03-23
-Proyecto: app interna para busqueda de ayudas BDNS, sin usuarios.
+Ultima actualizacion: 2026-04-07
+
+Proyecto: app interna para busqueda de ayudas BDNS, sin cuentas de usuario.
 
 ## Estado actual (hecho)
 
-1. Bloque 1 completado
-- Next.js + TypeScript en `web`.
-- Docker Compose con `app` y `db` (PostgreSQL).
-- Endpoint salud DB: `web/src/app/api/health/route.ts`.
-- Ajuste de imagenes por incidencia de red con Docker Hub (uso de ECR Public para postgres).
+1. **Base:** Next.js + TypeScript en `web`, Docker Compose (`app`, `db`, `scheduler`), PostgreSQL, healthcheck.
 
-2. Bloque 2 completado (BFF basico BDNS)
-- Endpoint busqueda interno: `web/src/app/api/grants/search/route.ts`.
-- Cliente BDNS y normalizacion: `web/src/lib/bdns/client.ts`.
-- Mapeo principal: `descripcion`, `fechaRecepcion`, `nivel2`, `numeroConvocatoria`.
+2. **BFF BDNS:** busqueda y detalle normalizado, CCAA vía catalogo de regiones.
 
-3. Bloque 3 en progreso (UI)
-- Listado funcional con filtros y paginacion: `web/src/app/page.tsx`.
-- Estilos base: `web/src/app/page.module.css`.
-- Detalle interno:
-  - API detalle: `web/src/app/api/grants/[id]/route.ts`.
-  - Pagina detalle: `web/src/app/grants/[id]/page.tsx`.
-  - CSS detalle: `web/src/app/grants/[id]/page.module.css`.
+3. **UI:** listado con filtros, detalle en modal, gestion de **perfiles de alerta** en modal ("Gestionar alertas").
 
-## Problemas resueltos
+4. **Destinatarios de resumenes (email + Telegram):**
+   - Tabla `notification_recipients` (canal `email` | `telegram`, `address`, `label`, `enabled`).
+   - API: `GET/POST /api/settings/notification-recipients`, `PUT/DELETE .../[id]`.
+   - Modal de alertas: seccion "Destinatarios del resumen" para varios correos y varios chat ID.
+   - **Regla de envio:** si hay al menos una fila **activa** en BD para ese canal, se usa solo la BD; si no hay ninguna, **fallback** a `ALERT_RECIPIENTS` / `TELEGRAM_CHAT_ID` en `.env`.
+   - Credenciales **SMTP** y **token del bot** siguen en entorno (no en la tabla).
 
-- Submodulo accidental en `web` corregido (ahora carpeta normal en git).
-- Error `fetch failed` por endpoint placeholder BDNS corregido.
-- Error de detalle 404 corregido ajustando URL de BDNS y `numConv`.
-- Conflicto route/page en `/api/grants/[id]` corregido moviendo pagina fuera de `api`.
-- Error `showPicker` corregido eliminando llamadas forzadas.
+5. **Job de alertas:** `runWeeklyAlerts`, deduplicacion `grants_snapshot`, historial `alerts_history`, envio paralelo email + Telegram con timeout por canal, rate limit y lock en endpoint manual.
 
-## Pendiente inmediato
+6. **Copia del digest:** cadencia etiquetada con `ALERTS_DIGEST_PERIOD` (p. ej. diario); cuidado con caché `.next` en Docker al cambiar codigo (recrear contenedor si hiciera falta).
 
-1. Filtro por Comunidad Autonoma cuando `tipoAdministracion = A`
-- Crear/usar catalogo de regiones y mostrar selector CCAA.
-- Enviar `regionId` al backend y mapear a `regiones` en BDNS.
+## Plan / bloques
 
-2. Revisar `web/src/app/page.tsx`
-- Evitar estados/hooks fuera de `Home()`.
-- Dejar consistentes estados `input` vs estados aplicados.
+Ver `.cursor/plans/plan_interno_ayudas_docker_bebc1756.plan.md` (incluye todo `bloque-4-destinatarios-multi`).
 
-## Regla de trabajo acordada con el usuario (importante)
+## Pendiente / siguiente foco
 
-Cuando haya que cambiar codigo:
+- Bloque 6 hardening (reintentos por canal, etc.).
+- Bloque 7 separacion comercializable (sin multi-tenant aun).
 
-1. Mostrar primero **"Como esta ahora"** (fragmento actual).
-2. Mostrar despues **"Que sustituir"** (fragmento nuevo).
-3. Indicar **donde** cambiarlo (archivo y bloque).
-4. Evitar explicaciones ambiguas del tipo "anade esto por ahi".
+## Regla de trabajo acordada con el usuario
 
-Formato preferido del usuario:
-- "Lo que esta mal"
-- "Lo que hay que cambiar"
-- Con bloques antes/despues para comparar facilmente.
-
+Para cambios de codigo deseados como **instrucciones**: formato "como esta / que sustituir / donde".  
+El usuario ejecuta los commits salvo que pida lo contrario.

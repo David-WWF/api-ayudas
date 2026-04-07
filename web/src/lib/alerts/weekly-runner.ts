@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { searchGrants, type GrantItem } from "@/lib/bdns/client";
 import { sendWeeklyDigestEmail } from "./mailer";
 import { sendWeeklyDigestTelegram } from "./telegram";
+import { ensureNotificationRecipientsTable } from "./notification-recipients";
 
 // Filtros persistidos en DB para cada perfil de alerta.
 type AlertFilters = {
@@ -56,7 +57,7 @@ let weeklyRunInProgress = false;
 
 export class WeeklyRunAlreadyRunningError extends Error {
   constructor() {
-    super("Ya hay una ejecución semanal en curso.");
+    super("Ya hay una ejecución de alertas en curso.");
     this.name = "WeeklyRunAlreadyRunningError";
   }
 }
@@ -123,6 +124,8 @@ function mapProfileRow(row: Record<string, unknown>): AlertProfile {
 }
 
 async function ensureTables() {
+  await ensureNotificationRecipientsTable();
+
   // Tabla de perfiles de alertas configurables.
   await db.query(`
     CREATE TABLE IF NOT EXISTS alert_profiles (

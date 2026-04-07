@@ -14,6 +14,9 @@ todos:
   - id: bloque-4-config-alertas
     content: Crear configuración interna multi-alerta (perfiles) y destinatarios fijos.
     status: completed
+  - id: bloque-4-destinatarios-multi
+    content: Destinatarios dinámicos (varios emails y chats Telegram) en PostgreSQL + CRUD en la web; credenciales SMTP/bot siguen en env; fallback a ALERT_RECIPIENTS / TELEGRAM_CHAT_ID si no hay filas activas.
+    status: completed
   - id: bloque-5-alerta-semanal
     content: Implementar job semanal multi-perfil con deduplicación y envío duplicado (email + Telegram), incluyendo configuración guiada desde cero de ambos canales.
     status: completed
@@ -72,11 +75,11 @@ flowchart LR
 
 - Búsqueda y listado con filtros.
 - Detalle de convocatoria.
-- Configuración interna de alertas con múltiples perfiles (destinatarios fijos compartidos).
+- Configuración interna de alertas con múltiples perfiles y **lista editable de destinatarios** (varios correos y varios chat ID de Telegram), compartida para todos los envíos del resumen.
 - Motor de alertas semanal que:
   - ejecuta búsqueda por perfil,
   - detecta novedades por perfil,
-  - envía un resumen **por email y Telegram** a configuración interna fija.
+  - envía un resumen **por email y Telegram** a los destinatarios activos en base de datos (o, si una lista está vacía, a las variables de entorno de respaldo).
 
 ## Diferenciación frente al portal BDNS (valor añadido)
 
@@ -96,7 +99,7 @@ Para no replicar únicamente la consulta pública, se añade enfoque operativo i
 Tablas mínimas sugeridas (enfoque multi-alerta):
 
 - `alert_profiles` (configuración de cada alerta: nombre, estado, filtros).
-- `notification_recipients` (lista fija de emails internos).
+- `notification_recipients` (destinatarios por canal: `email` o `telegram`, varias filas, activar/pausar).
 - `grants_snapshot` (convocatorias vistas por perfil para deduplicación).
 - `alerts_history` (histórico de envíos por perfil y resultados incluidos).
 
@@ -133,8 +136,8 @@ Tablas mínimas sugeridas (enfoque multi-alerta):
 - Pantalla/admin interna simple para:
   - crear/editar/desactivar perfiles de alerta,
   - definir filtros por perfil (texto, administración, CCAA, fechas),
-  - gestionar lista fija de destinatarios.
-- Guardado en PostgreSQL de perfiles y configuración.
+  - **añadir, pausar o quitar destinatarios** de email y de Telegram (múltiples entradas por canal).
+- Guardado en PostgreSQL de perfiles y de destinatarios; el **token del bot** y **SMTP** permanecen en variables de entorno (secretos).
 
 ### Bloque 5 - Motor semanal de alertas (multi-perfil)
 
@@ -147,7 +150,7 @@ Tablas mínimas sugeridas (enfoque multi-alerta):
   - Telegram resumen.
 - Subfase previa obligatoria de preparación de canales:
   - Crear bot de Telegram y obtener `TELEGRAM_BOT_TOKEN`.
-  - Obtener `TELEGRAM_CHAT_ID` de destino (chat personal o grupo interno).
+  - Obtener al menos un `TELEGRAM_CHAT_ID` (o gestionar varios desde la web una vez creada la tabla `notification_recipients`).
   - Elegir proveedor SMTP (opción simple recomendada) y generar credenciales.
   - Configurar y validar variables en `docker-compose.yml`.
   - Probar cada canal por separado antes de la prueba integrada.
@@ -188,7 +191,7 @@ Tablas mínimas sugeridas (enfoque multi-alerta):
 - Bloque 1: **Completado**.
 - Bloque 2: **Completado**.
 - Bloque 3: **Completado** (buscador con filtros, detalle en modal, persistencia de perfil base).
-- Bloque 4: **Completado** (multi-alerta operativa en modal con CRUD básico).
+- Bloque 4: **Completado** (multi-alerta en modal + destinatarios multi-canal en BD/UI con fallback a env).
 - Bloque 5: **Completado** (job semanal con deduplicación y envío duplicado email + Telegram validado).
 - Bloque 6-7: **Pendiente**.
 

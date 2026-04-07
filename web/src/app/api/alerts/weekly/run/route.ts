@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     // Control de acceso simple por secreto compartido via header.
     if (!isAuthorized(request)) {
       return NextResponse.json(
-        { ok: false, error: "No autorizado para ejecutar el job semanal." },
+        { ok: false, error: "No autorizado para ejecutar el envío de alertas." },
         { status: 401 }
       );
     }
@@ -81,7 +81,7 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     inProgress: isWeeklyRunInProgress(),
-    message: "Usa POST para ejecutar el job semanal de alertas.",
+    message: "Usa POST para ejecutar el job de alertas.",
   });
 }
 

@@ -1,4 +1,6 @@
 import nodemailer from "nodemailer";
+import { getDigestEmailSubject, getDigestTitleFull } from "./digest-copy";
+import { getActiveEmailAddresses } from "./notification-recipients";
 
 // Estructura minima de una convocatoria incluida en el resumen.
 type DigestItem = {
@@ -16,7 +18,7 @@ type DigestProfile = {
   newItems: DigestItem[];
 };
 
-// Datos de entrada que recibe el canal email para el envio semanal.
+// Datos de entrada que recibe el canal email para el digest (cadencia en ALERTS_DIGEST_PERIOD).
 type SendWeeklyDigestInput = {
   runId: string;
   runAtIso: string;
@@ -28,14 +30,19 @@ export type SendWeeklyDigestResult = {
   message: string;
 };
 
-function parseRecipients(): string[] {
-  // ALERT_RECIPIENTS admite lista separada por comas:
-  // "persona1@dominio.com,persona2@dominio.com"
+function parseRecipientsFromEnv(): string[] {
+  // Fallback si no hay filas activas en notification_recipients.
   const raw = process.env.ALERT_RECIPIENTS ?? "";
   return raw
     .split(",")
-    .map((v) => v.trim())
+    .map((v) => v.trim().toLowerCase())
     .filter((v) => v.length > 0);
+}
+
+async function resolveEmailRecipients(): Promise<string[]> {
+  const fromDb = await getActiveEmailAddresses();
+  if (fromDb.length > 0) return fromDb;
+  return parseRecipientsFromEnv();
 }
 
 function escapeHtml(value: string): string {
@@ -51,7 +58,7 @@ function escapeHtml(value: string): string {
 function buildTextBody(input: SendWeeklyDigestInput): string {
   // Version texto plano del resumen (util para clientes sin HTML).
   const lines: string[] = [];
-  lines.push("Resumen semanal de alertas - api-ayudas");
+  lines.push(getDigestTitleFull());
   lines.push(`Run ID: ${input.runId}`);
   lines.push(`Fecha ejecución: ${input.runAtIso}`);
   lines.push("");
@@ -108,7 +115,7 @@ function buildHtmlBody(input: SendWeeklyDigestInput): string {
 
   return `
     <div style="font-family:Arial,sans-serif; color:#111827;">
-      <h2 style="margin:0 0 12px 0;">Resumen semanal de alertas - api-ayudas</h2>
+      <h2 style="margin:0 0 12px 0;">${escapeHtml(getDigestTitleFull())}</h2>
       <p style="margin:0 0 8px 0;"><strong>Run ID:</strong> ${escapeHtml(input.runId)}</p>
       <p style="margin:0 0 16px 0;"><strong>Fecha ejecución:</strong> ${escapeHtml(input.runAtIso)}</p>
       ${sections}
@@ -125,10 +132,13 @@ export async function sendWeeklyDigestEmail(
   }
 
 
-  const recipients = parseRecipients();
-  // Este proyecto considera email obligatorio: sin destinatarios es error.
+  const recipients = await resolveEmailRecipients();
   if (recipients.length === 0) {
-    return { status: "error", message: "No hay destinatarios en ALERT_RECIPIENTS." };
+    return {
+      status: "error",
+      message:
+        "No hay destinatarios de email: añade entradas en la web o define ALERT_RECIPIENTS en .env.",
+    };
   }
 
   const host = process.env.SMTP_HOST ?? "";
@@ -155,7 +165,7 @@ export async function sendWeeklyDigestEmail(
       auth: { user, pass },
     });
 
-    const subject = `[api-ayudas] Resumen semanal (${input.profiles.length} perfiles con novedades)`;
+    const subject = getDigestEmailSubject(input.profiles.length);
 
     // Enviamos una unica pieza a todos los destinatarios configurados.
     await transporter.sendMail({

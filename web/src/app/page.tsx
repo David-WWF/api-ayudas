@@ -90,6 +90,22 @@ type AlertProfilesResponse = {
   error?: string;
 };
 
+type NotificationRecipient = {
+  id: number;
+  channel: "email" | "telegram";
+  address: string;
+  label: string | null;
+  enabled: boolean;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+type NotificationRecipientsResponse = {
+  ok: boolean;
+  data?: NotificationRecipient[];
+  error?: string;
+};
+
 const PAGE_SIZE = 10;
 
 export default function Home() {
@@ -134,6 +150,17 @@ export default function Home() {
   const [profilesError, setProfilesError] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<AlertProfile[]>([]);
   const [profileBusyId, setProfileBusyId] = useState<number | null>(null);
+
+  const [recipientsLoading, setRecipientsLoading] = useState(false);
+  const [recipientsError, setRecipientsError] = useState<string | null>(null);
+  const [recipients, setRecipients] = useState<NotificationRecipient[]>([]);
+  const [recipientBusyId, setRecipientBusyId] = useState<number | null>(null);
+  const [recipientSaving, setRecipientSaving] = useState(false);
+  const [newRecipientChannel, setNewRecipientChannel] = useState<"email" | "telegram">(
+    "email"
+  );
+  const [newRecipientAddress, setNewRecipientAddress] = useState("");
+  const [newRecipientLabel, setNewRecipientLabel] = useState("");
 
   // Form nuevo perfil
   const [newProfileName, setNewProfileName] = useState("Nueva alerta");
@@ -340,6 +367,137 @@ export default function Home() {
       setProfilesError(err instanceof Error ? err.message : "Error cargando perfiles");
     } finally {
       setProfilesLoading(false);
+    }
+  }
+
+  async function loadRecipients() {
+    setRecipientsLoading(true);
+    setRecipientsError(null);
+
+    try {
+      const res = await fetch("/api/settings/notification-recipients", { cache: "no-store" });
+      const contentType = res.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        throw new Error("La API de destinatarios no devolvió JSON válido");
+      }
+
+      const json = (await res.json()) as NotificationRecipientsResponse;
+
+      if (!res.ok || !json.ok || !Array.isArray(json.data)) {
+        throw new Error(json.error ?? "No se pudieron cargar los destinatarios");
+      }
+
+      setRecipients(json.data);
+    } catch (err) {
+      setRecipientsError(err instanceof Error ? err.message : "Error cargando destinatarios");
+    } finally {
+      setRecipientsLoading(false);
+    }
+  }
+
+  async function createRecipient() {
+    const addr = newRecipientAddress.trim();
+    if (!addr) {
+      setRecipientsError("Indica un correo o un chat ID de Telegram.");
+      return;
+    }
+
+    setRecipientSaving(true);
+    setRecipientsError(null);
+
+    try {
+      const res = await fetch("/api/settings/notification-recipients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channel: newRecipientChannel,
+          address: addr,
+          label: newRecipientLabel.trim() || null,
+          enabled: true,
+        }),
+      });
+
+      const contentType = res.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        throw new Error("La API de destinatarios no devolvió JSON válido");
+      }
+
+      const json = (await res.json()) as { ok: boolean; error?: string };
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error ?? "No se pudo añadir el destinatario");
+      }
+
+      setNewRecipientAddress("");
+      setNewRecipientLabel("");
+      await loadRecipients();
+    } catch (err) {
+      setRecipientsError(err instanceof Error ? err.message : "Error añadiendo destinatario");
+    } finally {
+      setRecipientSaving(false);
+    }
+  }
+
+  async function toggleRecipientEnabled(r: NotificationRecipient) {
+    setRecipientBusyId(r.id);
+    setRecipientsError(null);
+
+    try {
+      const res = await fetch(`/api/settings/notification-recipients/${r.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          label: r.label,
+          enabled: !r.enabled,
+          address: r.address,
+          channel: r.channel,
+        }),
+      });
+
+      const contentType = res.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        throw new Error("La API de destinatarios no devolvió JSON válido");
+      }
+
+      const json = (await res.json()) as { ok: boolean; error?: string };
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error ?? "No se pudo actualizar");
+      }
+
+      await loadRecipients();
+    } catch (err) {
+      setRecipientsError(err instanceof Error ? err.message : "Error actualizando destinatario");
+    } finally {
+      setRecipientBusyId(null);
+    }
+  }
+
+  async function deleteRecipient(id: number) {
+    const confirmed = window.confirm("¿Eliminar este destinatario?");
+    if (!confirmed) return;
+
+    setRecipientBusyId(id);
+    setRecipientsError(null);
+
+    try {
+      const res = await fetch(`/api/settings/notification-recipients/${id}`, {
+        method: "DELETE",
+      });
+
+      const contentType = res.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        throw new Error("La API de destinatarios no devolvió JSON válido");
+      }
+
+      const json = (await res.json()) as { ok: boolean; error?: string };
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error ?? "No se pudo eliminar");
+      }
+
+      await loadRecipients();
+    } catch (err) {
+      setRecipientsError(err instanceof Error ? err.message : "Error eliminando destinatario");
+    } finally {
+      setRecipientBusyId(null);
     }
   }
 
@@ -613,6 +771,7 @@ export default function Home() {
               onClick={() => {
                 setProfilesModalOpen(true);
                 void loadProfiles();
+                void loadRecipients();
               }}
             >
               <svg
@@ -939,6 +1098,99 @@ export default function Home() {
               </button>
 
               <h2 className={styles.modalTitle}>Gestión de alertas</h2>
+
+              <p className={styles.modalHint}>
+                Los envíos usan el bot y SMTP configurados en el servidor. Aquí defines{" "}
+                <strong>a quién</strong> llegan los resúmenes (varios correos y varios chats).
+                Si no hay filas activas en la base de datos, se usan{" "}
+                <code>ALERT_RECIPIENTS</code> y <code>TELEGRAM_CHAT_ID</code> del entorno.
+              </p>
+
+              <h3 className={styles.modalSectionTitle}>Destinatarios del resumen</h3>
+
+              <div className={styles.recipientFormRow}>
+                <select
+                  value={newRecipientChannel}
+                  onChange={(e) =>
+                    setNewRecipientChannel(e.target.value === "telegram" ? "telegram" : "email")
+                  }
+                  aria-label="Canal"
+                >
+                  <option value="email">Email</option>
+                  <option value="telegram">Telegram (chat ID)</option>
+                </select>
+                <input
+                  placeholder={
+                    newRecipientChannel === "email"
+                      ? "correo@empresa.com"
+                      : "ID numérico (ej. 123456789)"
+                  }
+                  value={newRecipientAddress}
+                  onChange={(e) => setNewRecipientAddress(e.target.value)}
+                />
+                <input
+                  placeholder="Etiqueta (opcional)"
+                  value={newRecipientLabel}
+                  onChange={(e) => setNewRecipientLabel(e.target.value)}
+                />
+                <button
+                  type="button"
+                  disabled={recipientSaving}
+                  onClick={() => void createRecipient()}
+                >
+                  {recipientSaving ? "Añadiendo..." : "Añadir"}
+                </button>
+              </div>
+
+              {recipientsLoading ? <p>Cargando destinatarios...</p> : null}
+              {recipientsError ? <p className={styles.error}>Error: {recipientsError}</p> : null}
+
+              {!recipientsLoading && recipients.length === 0 ? (
+                <p className={styles.modalHint}>
+                  No hay destinatarios en base de datos; se usará solo la configuración por
+                  variables de entorno si existe.
+                </p>
+              ) : null}
+
+              <ul className={styles.profileList}>
+                {recipients.map((r) => (
+                  <li key={r.id} className={styles.profileCard}>
+                    <p>
+                      <strong>{r.channel === "email" ? "Email" : "Telegram"}</strong>
+                      {": "}
+                      <code>{r.address}</code>
+                      {r.label ? (
+                        <>
+                          {" "}
+                          <span className={styles.recipientLabel}>({r.label})</span>
+                        </>
+                      ) : null}
+                    </p>
+                    <p className={styles.modalHint}>
+                      Estado: {r.enabled ? "Activo" : "Pausado"}
+                    </p>
+                    <div className={styles.profileActions}>
+                      <button
+                        type="button"
+                        disabled={recipientBusyId === r.id}
+                        onClick={() => void toggleRecipientEnabled(r)}
+                      >
+                        {r.enabled ? "Pausar" : "Activar"}
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.dangerButton}
+                        disabled={recipientBusyId === r.id}
+                        onClick={() => void deleteRecipient(r.id)}
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+
+              <h3 className={styles.modalSectionTitle}>Perfiles de búsqueda (alertas)</h3>
 
               <div className={styles.profileFormGrid}>
                 <input

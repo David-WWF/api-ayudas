@@ -1,3 +1,6 @@
+import { getDigestTelegramBanner } from "./digest-copy";
+import { getActiveTelegramChatIds } from "./notification-recipients";
+
 type DigestItem = {
   id: string;
   title: string;
@@ -71,7 +74,7 @@ function buildTelegramMessages(input: SendWeeklyDigestInput): string[] {
   const totalNew = input.profiles.reduce((acc, p) => acc + p.newItems.length, 0);
 
   const header = [
-    "API AYUDAS - RESUMEN SEMANAL",
+    getDigestTelegramBanner(),
     `Run ID: ${input.runId}`,
     `Fecha: ${input.runAtIso}`,
     `Perfiles con novedades: ${input.profiles.length}`,
@@ -140,17 +143,31 @@ async function sendTelegramMessage(
   }
 }
 
+async function resolveTelegramChatIds(): Promise<string[]> {
+  const fromDb = await getActiveTelegramChatIds();
+  if (fromDb.length > 0) return fromDb;
+  const single = process.env.TELEGRAM_CHAT_ID?.trim() ?? "";
+  return single ? [single] : [];
+}
+
 export async function sendWeeklyDigestTelegram(
   input: SendWeeklyDigestInput
 ): Promise<SendWeeklyDigestTelegramResult> {
   const botToken = process.env.TELEGRAM_BOT_TOKEN?.trim() ?? "";
-  const chatId = process.env.TELEGRAM_CHAT_ID?.trim() ?? "";
+  const chatIds = await resolveTelegramChatIds();
 
-  if (!botToken || !chatId) {
-    // Canal obligatorio: faltan credenciales, se reporta error.
+  if (!botToken) {
     return {
       status: "error",
-      message: "Falta TELEGRAM_BOT_TOKEN o TELEGRAM_CHAT_ID.",
+      message: "Falta TELEGRAM_BOT_TOKEN.",
+    };
+  }
+
+  if (chatIds.length === 0) {
+    return {
+      status: "error",
+      message:
+        "No hay chats de Telegram: añade IDs en la web o define TELEGRAM_CHAT_ID en .env.",
     };
   }
 
@@ -164,14 +181,16 @@ export async function sendWeeklyDigestTelegram(
 
   try {
     const messages = buildTelegramMessages(input);
-    // Enviamos secuencialmente para mantener orden natural de lectura.
-    for (const message of messages) {
-      await sendTelegramMessage(botToken, chatId, message);
+    // Por cada chat y cada fragmento, en orden estable.
+    for (const chatId of chatIds) {
+      for (const message of messages) {
+        await sendTelegramMessage(botToken, chatId, message);
+      }
     }
 
     return {
       status: "sent",
-      message: `Telegram enviado en ${messages.length} mensaje(s).`,
+      message: `Telegram enviado a ${chatIds.length} chat(s), ${messages.length} mensaje(s) por chat.`,
     };
   } catch (error) {
     // Error controlado para que el runner lo consolide en historial.
