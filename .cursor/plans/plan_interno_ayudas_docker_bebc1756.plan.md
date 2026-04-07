@@ -1,6 +1,6 @@
 ---
 name: Plan interno ayudas docker
-overview: Planificar un MVP interno con Next.js para búsqueda y alertas semanales de subvenciones, sin gestión de usuarios, usando Docker desde el inicio y con enfoque didáctico paso a paso.
+overview: MVP interno Next.js (Buscador de Ayudas / BDNS) con alertas por cron, envío duplicado email + Telegram y destinatarios en BD, sin gestión de usuarios; Docker desde el inicio y enfoque didáctico.
 todos:
   - id: bloque-1-docker-base
     content: Levantar estructura Next.js + PostgreSQL en Docker y verificar entorno reproducible.
@@ -18,11 +18,11 @@ todos:
     content: Destinatarios dinámicos (varios emails y chats Telegram) en PostgreSQL + CRUD en la web; credenciales SMTP/bot siguen en env; fallback a ALERT_RECIPIENTS / TELEGRAM_CHAT_ID si no hay filas activas.
     status: completed
   - id: bloque-5-alerta-semanal
-    content: Implementar job semanal multi-perfil con deduplicación y envío duplicado (email + Telegram), incluyendo configuración guiada desde cero de ambos canales.
+    content: Job multi-perfil por cron con deduplicación y envío duplicado (email + Telegram); configuración guiada de canales (token SMTP, bot Telegram).
     status: completed
   - id: bloque-6-hardening
-    content: Aplicar validaciones, logs y ajustes de rendimiento para uso interno.
-    status: pending
+    content: "Hardening operativo: hecho lock job, rate limit POST, logs JSON, timeouts por canal; pendiente reintentos por canal y caché BDNS opcional."
+    status: in_progress
 isProject: false
 ---
 
@@ -46,8 +46,8 @@ Aplicación web interna para:
 
 - Buscar convocatorias de ayudas/subvenciones a empresas.
 - Filtrar y consultar detalle.
-- Enviar alertas **semanales** por email con resultados nuevos según múltiples perfiles de filtros.
-- Enviar alertas **semanales duplicadas** por **email y Telegram** con resultados nuevos según múltiples perfiles de filtros.
+- Enviar alertas **programadas** (cron, p. ej. diarias) por email con novedades según múltiples perfiles.
+- Enviar el mismo resumen **duplicado** por **email y Telegram** a destinatarios configurados en BD (o fallback env).
 
 Fuente principal: BDNS ([https://www.pap.hacienda.gob.es/bdnstrans/GE/es/doc](https://www.pap.hacienda.gob.es/bdnstrans/GE/es/doc)).
 
@@ -55,7 +55,7 @@ Fuente principal: BDNS ([https://www.pap.hacienda.gob.es/bdnstrans/GE/es/doc](ht
 
 - **Frontend + Backend web**: Next.js con TypeScript.
 - **Persistencia**: PostgreSQL.
-- **Procesos de alertas**: job programado semanal.
+- **Procesos de alertas**: job programado vía `ALERTS_AUTORUN_CRON` (diario/semanal u otro).
 - **Email**: proveedor transaccional (p. ej. Resend/SendGrid).
 - **Contenerización**: Docker + Docker Compose desde el día 1.
 
@@ -89,10 +89,10 @@ Para no replicar únicamente la consulta pública, se añade enfoque operativo i
   - múltiples perfiles de filtros de negocio (texto, CCAA, administración, fechas),
   - activables/desactivables según necesidad operativa.
 - **Vigilancia automática de novedades**:
-  - comparación semanal contra snapshot histórico por perfil,
+  - comparación contra snapshot histórico por perfil en cada corrida del job,
   - envío de solo convocatorias nuevas o relevantes (menos ruido).
 - **Resumen accionable interno**:
-  - email semanal con top resultados por perfil y enlaces directos al detalle interno.
+  - email (y Telegram) con novedades por perfil; etiqueta de cadencia vía `ALERTS_DIGEST_PERIOD`.
 
 ## Modelo de datos ajustado (sin tabla de usuarios)
 
@@ -143,7 +143,7 @@ Tablas mínimas sugeridas (enfoque multi-alerta):
 
 **Qué aprenderás**: jobs periódicos e idempotencia.
 
-- Job semanal (cron) que consulta BDNS para cada perfil activo.
+- Job por cron que consulta BDNS para cada perfil activo.
 - Detección de nuevas convocatorias respecto a `grants_snapshot` por perfil.
 - Registro en `alerts_history` y envío **duplicado** por canales:
   - email resumen,
@@ -192,16 +192,16 @@ Tablas mínimas sugeridas (enfoque multi-alerta):
 - Bloque 2: **Completado**.
 - Bloque 3: **Completado** (buscador con filtros, detalle en modal, persistencia de perfil base).
 - Bloque 4: **Completado** (multi-alerta en modal + destinatarios multi-canal en BD/UI con fallback a env).
-- Bloque 5: **Completado** (job semanal con deduplicación y envío duplicado email + Telegram validado).
-- Bloque 6-7: **Pendiente**.
+- Bloque 5: **Completado** (job con deduplicación y envío duplicado email + Telegram validado).
+- Bloque 6: **En progreso** (lock de job, rate limit en POST manual, logs JSON, timeouts por canal; falta reintentos y caché opcional).
+- Bloque 7: **Pendiente**.
 
 ### Bloque 6 - Hardening para uso interno
 
 **Qué aprenderás**: calidad mínima operativa antes de escalar.
 
-- Validación de entrada y rate limit básico.
-- Logs estructurados y trazabilidad de jobs.
-- Caché de consultas frecuentes para mejorar tiempos.
+- **Hecho:** candado anti-ejecuciones simultáneas, rate limit del endpoint manual, logs estructurados (`weekly_run_*`), timeout por canal de envío.
+- **Pendiente:** reintentos controlados por canal; caché de consultas BDNS frecuentes si hace falta.
 
 ### Bloque 7 - Preparación para futura venta (sin sobreingeniería)
 

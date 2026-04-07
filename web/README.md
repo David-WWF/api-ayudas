@@ -1,6 +1,6 @@
-# API Ayudas (web)
+# API Ayudas (web) — Buscador de Ayudas
 
-Aplicacion interna construida con Next.js + TypeScript para:
+Aplicación interna (título en navegador: **Buscador de Ayudas**) construida con Next.js + TypeScript para:
 
 - buscar convocatorias en BDNS,
 - guardar perfiles de alerta en PostgreSQL,
@@ -21,6 +21,7 @@ En cada corrida programada (`ALERTS_AUTORUN_CRON`) se hace lo siguiente:
 ## Arquitectura resumida
 
 - **UI (Next.js App Router):**
+  - Metadatos raíz: `src/app/layout.tsx` (`title`, `description`, `lang="es"`).
   - Busqueda y filtros.
   - Gestion de perfiles de alertas (modal CRUD).
   - Gestion de **destinatarios** del resumen: varios emails y varios chat ID de Telegram.
@@ -87,9 +88,9 @@ Definidas en `web/.env.local` (no versionado):
   - `APP_INTERNAL_URL`
   - `TZ`
 - **BDNS**
-  - `BDNS_BASE_URL`
-  - `BDNS_TIMEOUT_MS`
-  - `BDNS_RETRIES`
+  - `BDNS_SEARCH_ENDPOINT` — URL completa del endpoint de búsqueda (obligatorio para listados; ver `.env.local` de ejemplo).
+  - `BDNS_BASE_URL` — base de la API usada en detalle y catalogo de regiones (tiene valor por defecto en código si no se define).
+  - `BDNS_TIMEOUT_MS`, `BDNS_RETRIES`
 - **Job y seguridad**
   - `ALERTS_RUN_SECRET`
   - `ALERTS_AUTORUN_CRON`
@@ -147,8 +148,9 @@ Problemas tipicos:
 - `401`: secreto incorrecto o ausente.
 - `409`: ya hay una corrida en curso.
 - `429`: llamadas manuales demasiado seguidas.
-- `emailStatus=error`: revisar SMTP y `ALERT_RECIPIENTS`.
-- `telegramStatus=error`: revisar token/chat id del bot.
+- `emailStatus=error`: revisar SMTP, destinatarios activos en `notification_recipients` o fallback `ALERT_RECIPIENTS`.
+- `telegramStatus=error`: revisar `TELEGRAM_BOT_TOKEN`, chats activos en BD o fallback `TELEGRAM_CHAT_ID`.
+- Tras cambios en código del **servidor** o en metadatos, si algo parece «atascado»: `docker compose restart app` o `docker compose up -d --force-recreate app` (el volumen `.next` del contenedor puede conservar bundles viejos).
 
 ## Notas de diseno
 
