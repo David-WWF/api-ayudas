@@ -1,25 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { AlertFilters } from "@/lib/domain/alert-filters";
+import { normalizeAlertFilters } from "@/lib/domain/alert-filters";
 import { db } from "@/lib/db";
 
 export const runtime = "nodejs";
-
-type AlertFilters = {
-  searchText: string;
-  tipoAdministracion: "C" | "A" | "L" | "O" | null;
-  regionId: number | null;
-  fechaDesde: string | null;
-  fechaHasta: string | null;
-  orderBy:
-    | "numeroConvocatoria"
-    | "mrr"
-    | "nivel1"
-    | "nivel2"
-    | "nivel3"
-    | "fechaRecepcion"
-    | "descripcion"
-    | "descripcionLeng";
-  direccion: "asc" | "desc";
-};
 
 type AlertProfile = {
   id: number;
@@ -31,63 +15,6 @@ type AlertProfile = {
   updatedAt: string | null;
 };
 
-const ALLOWED_TIPO_ADMIN = ["C", "A", "L", "O"] as const;
-const ALLOWED_ORDER = [
-  "numeroConvocatoria",
-  "mrr",
-  "nivel1",
-  "nivel2",
-  "nivel3",
-  "fechaRecepcion",
-  "descripcion",
-  "descripcionLeng",
-] as const;
-
-function normalizeFilters(input: unknown): AlertFilters {
-  const body = (input ?? {}) as Record<string, unknown>;
-
-  const searchText = typeof body.searchText === "string" ? body.searchText : "";
-
-  const tipoAdministracion =
-    typeof body.tipoAdministracion === "string" &&
-    (ALLOWED_TIPO_ADMIN as readonly string[]).includes(body.tipoAdministracion)
-      ? (body.tipoAdministracion as AlertFilters["tipoAdministracion"])
-      : null;
-
-  const regionId =
-    typeof body.regionId === "number" && Number.isInteger(body.regionId) && body.regionId > 0
-      ? body.regionId
-      : null;
-
-  const fechaDesde =
-    typeof body.fechaDesde === "string" && body.fechaDesde.length > 0
-      ? body.fechaDesde
-      : null;
-
-  const fechaHasta =
-    typeof body.fechaHasta === "string" && body.fechaHasta.length > 0
-      ? body.fechaHasta
-      : null;
-
-  const orderBy =
-    typeof body.orderBy === "string" &&
-    (ALLOWED_ORDER as readonly string[]).includes(body.orderBy)
-      ? (body.orderBy as AlertFilters["orderBy"])
-      : "fechaRecepcion";
-
-  const direccion = body.direccion === "asc" ? "asc" : "desc";
-
-  return {
-    searchText,
-    tipoAdministracion,
-    regionId,
-    fechaDesde,
-    fechaHasta,
-    orderBy,
-    direccion,
-  };
-}
-
 function mapRowToProfile(row: Record<string, unknown>): AlertProfile {
   const filtersRaw = (row.filters_json ?? {}) as Record<string, unknown>;
 
@@ -95,7 +22,7 @@ function mapRowToProfile(row: Record<string, unknown>): AlertProfile {
     id: Number(row.id),
     name: String(row.name ?? ""),
     enabled: Boolean(row.enabled),
-    filters: normalizeFilters(filtersRaw),
+    filters: normalizeAlertFilters(filtersRaw),
     scheduleCron: typeof row.schedule_cron === "string" ? row.schedule_cron : null,
     createdAt: typeof row.created_at === "string" ? row.created_at : null,
     updatedAt: typeof row.updated_at === "string" ? row.updated_at : null,
@@ -200,7 +127,7 @@ export async function PUT(
       typeof body.scheduleCron === "string" && body.scheduleCron.trim().length > 0
         ? body.scheduleCron.trim()
         : "0 9 * * 1";
-    const filters = normalizeFilters(body.filters);
+    const filters = normalizeAlertFilters(body.filters);
 
     const result = await db.query(
       `

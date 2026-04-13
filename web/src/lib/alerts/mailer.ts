@@ -1,6 +1,12 @@
 import nodemailer from "nodemailer";
 import { getDigestEmailSubject, getDigestTitleFull } from "./digest-copy";
 import { getActiveEmailAddresses } from "./notification-recipients";
+import {
+  backoffDelayMs,
+  getAlertsChannelRetries,
+  getAlertsChannelRetryDelayMs,
+  sleep,
+} from "./channel-retry";
 
 // Estructura minima de una convocatoria incluida en el resumen.
 type DigestItem = {
@@ -156,36 +162,47 @@ export async function sendWeeklyDigestEmail(
     };
   }
 
-  try {
-    // Configura el transporte SMTP real (Brevo, Mailgun, SMTP propio, etc.).
-    const transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure,
-      auth: { user, pass },
-    });
+  const transporter = nodemailer.createTransport({
+    host,
+    port,
+    secure,
+    auth: { user, pass },
+  });
 
-    const subject = getDigestEmailSubject(input.profiles.length);
+  const subject = getDigestEmailSubject(input.profiles.length);
+  const text = buildTextBody(input);
+  const html = buildHtmlBody(input);
+  const retries = getAlertsChannelRetries();
+  const delayBase = getAlertsChannelRetryDelayMs();
 
-    // Enviamos una unica pieza a todos los destinatarios configurados.
-    await transporter.sendMail({
-      from,
-      to: recipients.join(","),
-      subject,
-      text: buildTextBody(input),
-      html: buildHtmlBody(input),
-    });
+  let lastMessage = "Error SMTP desconocido.";
 
-    // Estado estandar para que el runner pueda persistirlo en historial.
-    return {
-      status: "sent",
-      message: `Email enviado a ${recipients.length} destinatario(s).`,
-    };
-  } catch (error) {
-    // Nunca rompemos el contrato: devolvemos status + mensaje de error.
-    return {
-      status: "error",
-      message: error instanceof Error ? error.message : "Error SMTP desconocido.",
-    };
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      await transporter.sendMail({
+        from,
+        to: recipients.join(","),
+        subject,
+        text,
+        html,
+      });
+
+      const suffix =
+        attempt > 0 ? ` (tras ${attempt} reintento(s)).` : "";
+      return {
+        status: "sent",
+        message: `Email enviado a ${recipients.length} destinatario(s).${suffix}`,
+      };
+    } catch (error) {
+      lastMessage = error instanceof Error ? error.message : "Error SMTP desconocido.";
+      if (attempt < retries) {
+        await sleep(backoffDelayMs(delayBase, attempt));
+      }
+    }
   }
+
+  return {
+    status: "error",
+    message: lastMessage,
+  };
 }

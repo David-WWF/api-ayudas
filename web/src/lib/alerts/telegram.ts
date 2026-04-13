@@ -1,5 +1,11 @@
 import { getDigestTelegramBanner } from "./digest-copy";
 import { getActiveTelegramChatIds } from "./notification-recipients";
+import {
+  backoffDelayMs,
+  getAlertsChannelRetries,
+  getAlertsChannelRetryDelayMs,
+  sleep,
+} from "./channel-retry";
 
 type DigestItem = {
   id: string;
@@ -118,12 +124,11 @@ function buildTelegramMessages(input: SendWeeklyDigestInput): string[] {
   return splitByBlocks(header, blocks, TELEGRAM_SAFE_LIMIT);
 }
 
-async function sendTelegramMessage(
+async function sendTelegramMessageOnce(
   botToken: string,
   chatId: string,
   text: string
 ): Promise<void> {
-  // Llamada directa a la API HTTP de Telegram Bot.
   const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
 
   const response = await fetch(url, {
@@ -141,6 +146,32 @@ async function sendTelegramMessage(
     const body = await response.text();
     throw new Error(`Telegram API ${response.status}: ${body}`);
   }
+}
+
+async function sendTelegramMessageWithRetries(
+  botToken: string,
+  chatId: string,
+  text: string
+): Promise<void> {
+  const retries = getAlertsChannelRetries();
+  const delayBase = getAlertsChannelRetryDelayMs();
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      await sendTelegramMessageOnce(botToken, chatId, text);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt < retries) {
+        await sleep(backoffDelayMs(delayBase, attempt));
+      }
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Error desconocido enviando Telegram.");
 }
 
 async function resolveTelegramChatIds(): Promise<string[]> {
@@ -181,10 +212,9 @@ export async function sendWeeklyDigestTelegram(
 
   try {
     const messages = buildTelegramMessages(input);
-    // Por cada chat y cada fragmento, en orden estable.
     for (const chatId of chatIds) {
       for (const message of messages) {
-        await sendTelegramMessage(botToken, chatId, message);
+        await sendTelegramMessageWithRetries(botToken, chatId, message);
       }
     }
 

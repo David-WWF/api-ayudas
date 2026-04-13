@@ -21,8 +21,11 @@ todos:
     content: Job multi-perfil por cron con deduplicación y envío duplicado (email + Telegram); configuración guiada de canales (token SMTP, bot Telegram).
     status: completed
   - id: bloque-6-hardening
-    content: "Hardening operativo: hecho lock job, rate limit POST, logs JSON, timeouts por canal; pendiente reintentos por canal y caché BDNS opcional."
-    status: in_progress
+    content: "Hardening operativo: lock job, rate limit POST, logs JSON, timeouts por canal, reintentos email/Telegram (env), caché BDNS opcional por TTL."
+    status: completed
+  - id: bloque-7-evolucion
+    content: "Capas UI/BFF/dominio/BDNS documentadas; lib/domain + bdns/detail/regions/urls; guía multi-tenant en docs/evolucion-multi-tenant.md."
+    status: completed
 isProject: false
 ---
 
@@ -193,23 +196,21 @@ Tablas mínimas sugeridas (enfoque multi-alerta):
 - Bloque 3: **Completado** (buscador con filtros, detalle en modal, persistencia de perfil base).
 - Bloque 4: **Completado** (multi-alerta en modal + destinatarios multi-canal en BD/UI con fallback a env).
 - Bloque 5: **Completado** (job con deduplicación y envío duplicado email + Telegram validado).
-- Bloque 6: **En progreso** (lock de job, rate limit en POST manual, logs JSON, timeouts por canal; falta reintentos y caché opcional).
-- Bloque 7: **Pendiente**.
+- Bloque 6: **Completado** (reintentos por canal con backoff, ampliación del timeout del runner; caché en memoria de búsquedas BDNS vía `BDNS_SEARCH_CACHE_TTL_SECONDS`).
+- Bloque 7: **Completado** (capas y guía de evolución; ver `docs/evolucion-multi-tenant.md`).
 
 ### Bloque 6 - Hardening para uso interno
 
 **Qué aprenderás**: calidad mínima operativa antes de escalar.
 
-- **Hecho:** candado anti-ejecuciones simultáneas, rate limit del endpoint manual, logs estructurados (`weekly_run_*`), timeout por canal de envío.
-- **Pendiente:** reintentos controlados por canal; caché de consultas BDNS frecuentes si hace falta.
+- **Hecho:** candado anti-ejecuciones simultáneas, rate limit del endpoint manual, logs estructurados (`weekly_run_*`), timeout por canal de envío, reintentos con backoff en SMTP y en cada envío a Telegram (`ALERTS_CHANNEL_RETRIES` / `ALERTS_CHANNEL_RETRY_DELAY_MS`), caché opcional de búsqueda BDNS en memoria (`BDNS_SEARCH_CACHE_TTL_SECONDS`).
 
 ### Bloque 7 - Preparación para futura venta (sin sobreingeniería)
 
 **Qué aprenderás**: diseñar para evolución.
 
-- Mantener separación clara entre UI, dominio e integración BDNS.
-- Externalizar configuración por variables de entorno.
-- Dejar base lista para introducir multi-tenant/usuarios más adelante sin rehacer todo.
+- **Hecho:** separación explícita `web/src/lib/domain` (tipos + `normalizeAlertFilters`), integración BDNS concentrada en `web/src/lib/bdns` (`urls`, `client`, `detail`, `regions`, caché), BFF en `route.ts`, guía `docs/evolucion-multi-tenant.md` en la raíz del repo.
+- Configuración sensible sigue en variables de entorno; checklist de producto en la misma guía.
 
 ## Organización de seguimiento para tu supervisor
 

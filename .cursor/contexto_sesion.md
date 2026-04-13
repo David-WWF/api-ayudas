@@ -6,7 +6,7 @@ Proyecto: app interna **Buscador de Ayudas** (titulo de pestaña y producto) par
 
 ## Estado actual (hecho)
 
-1. **Base:** Next.js + TypeScript en `web`, Docker Compose (`app`, `db`, `scheduler`), PostgreSQL, healthcheck.
+1. **Base:** Next.js + TypeScript en `web`, Docker Compose desarrollo (`docker-compose.yml`) o producción (`docker-compose.prod.yml` + `Dockerfile.prod` standalone), PostgreSQL, healthcheck.
 
 2. **BFF BDNS:** busqueda (`BDNS_SEARCH_ENDPOINT`) y detalle / catalogos usando URLs basadas en `BDNS_BASE_URL` (ver README). Filtros y CCAA vía catalogo de regiones.
 
@@ -22,13 +22,14 @@ Proyecto: app interna **Buscador de Ayudas** (titulo de pestaña y producto) par
 5. **Job de alertas:** `runWeeklyAlerts` (`weekly-runner.ts`), deduplicacion `grants_snapshot`, historial `alerts_history`, envio en paralelo email + Telegram con **timeout por canal** (`ALERTS_CHANNEL_TIMEOUT_MS`). **Candado** anti-concurrencia y **rate limit** (~10 s) en `POST /api/alerts/weekly/run`. **Logs** JSON (`weekly_run_*`).
    - Textos del digest: `src/lib/alerts/digest-copy.ts` + `ALERTS_DIGEST_PERIOD` (p. ej. diario). Tras cambios de servidor, si la pestaña o bundles muestran texto viejo: `docker compose restart app` o `up -d --force-recreate app` (caché `.next` en volumen).
 
-6. **Documentacion en repo:** `web/README.md` operativo; plan en `.cursor/plans/plan_interno_ayudas_docker_bebc1756.plan.md`.
+6. **Documentacion en repo:** `README.md` en la raiz; `web/README.md`; `docs/alert-job-sequence.md`; `docs/evolucion-multi-tenant.md` (bloque 7); `web/.env.example`; comentarios en `docker-compose.yml`; plan en `.cursor/plans/plan_interno_ayudas_docker_bebc1756.plan.md`.
+7. **Tests:** en `web/`, `npm run test` (Vitest) — rutas API documentadas + `normalizeAlertFilters`.
 
 ## Plan / bloques
 
 - Bloques **1–5** y **destinatarios multi** del plan: **completados**.
-- **Bloque 6 (hardening):** **parcial** — ya hay validacion basica en APIs, rate limit del job, logs estructurados, timeouts; **pendiente** p. ej. reintentos por canal y caché BDNS si se prioriza.
-- **Bloque 7:** pendiente (evolucion comercial / multi-tenant sin implementar aun).
+- **Bloque 6 (hardening):** **completado** — reintentos email/Telegram (`ALERTS_CHANNEL_RETRIES`, backoff), timeout exterior del job ajustado a reintentos; caché BDNS opcional (`BDNS_SEARCH_CACHE_TTL_SECONDS`).
+- **Bloque 7:** completado — `web/src/lib/domain`, BDNS en `detail.ts`/`regions.ts`/`urls.ts`, guia `docs/evolucion-multi-tenant.md`.
 
 ## Regla de trabajo acordada con el usuario
 

@@ -1,32 +1,26 @@
-# DESARROLLO: Next.js en modo dev con volúmenes (código en caliente). Producción: `docker-compose.prod.yml`.
-# Buscador de Ayudas: Next.js (app) + PostgreSQL (db) + cron que llama al job (scheduler).
-# Documentación: web/README.md y README.md en la raíz del repo.
+# Producción en el PC dedicado: Next compilado (standalone), sin montar el código fuente.
+# Desarrollo: usar `docker-compose.yml` (npm run dev + volúmenes).
 #
-# Variables de aplicación: web/.env.local (plantilla web/.env.example).
-# El scheduler usa APP_INTERNAL_URL (p. ej. http://app:3000) y ALERTS_AUTORUN_CRON.
+# Arranque: docker compose -f docker-compose.prod.yml up -d --build
+#
+# Tras cambiar código: rebuild del servicio app (no basta reiniciar el contenedor).
 
 services:
   app:
     build:
       context: ./web
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.prod
     container_name: ayudas_app
     ports:
       - "3000:3000"
     env_file:
       - ./web/.env.local
     environment:
-      NODE_ENV: development
+      NODE_ENV: production
       NEXT_TELEMETRY_DISABLED: "1"
-      WATCHPACK_POLLING: "true"
-    volumes:
-      - ./web:/app
-      - /app/node_modules
-      - /app/.next
     depends_on:
       db:
         condition: service_healthy
-    command: npm run dev
 
   db:
     image: public.ecr.aws/docker/library/postgres:16-alpine

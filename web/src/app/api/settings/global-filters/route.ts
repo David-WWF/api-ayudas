@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { normalizeAlertFilters } from "@/lib/domain/alert-filters";
 import { db } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -13,18 +14,6 @@ type GlobalFilters = {
   direccion: "asc" | "desc";
   updatedAt: string | null;
 };
-
-const ALLOWED_TIPO_ADMIN = ["C", "A", "L", "O"] as const;
-const ALLOWED_ORDER = [
-  "numeroConvocatoria",
-  "mrr",
-  "nivel1",
-  "nivel2",
-  "nivel3",
-  "fechaRecepcion",
-  "descripcion",
-  "descripcionLeng",
-] as const;
 
 async function ensureTable() {
   await db.query(`
@@ -103,37 +92,7 @@ export async function PUT(request: NextRequest) {
     await ensureTable();
 
     const body = (await request.json()) as Partial<GlobalFilters>;
-
-    const searchText = typeof body.searchText === "string" ? body.searchText : "";
-
-    const tipoAdministracion =
-      typeof body.tipoAdministracion === "string" &&
-      (ALLOWED_TIPO_ADMIN as readonly string[]).includes(body.tipoAdministracion)
-        ? body.tipoAdministracion
-        : null;
-
-    const regionId =
-      typeof body.regionId === "number" && Number.isInteger(body.regionId) && body.regionId > 0
-        ? body.regionId
-        : null;
-
-    const fechaDesde =
-      typeof body.fechaDesde === "string" && body.fechaDesde.length > 0
-        ? body.fechaDesde
-        : null;
-
-    const fechaHasta =
-      typeof body.fechaHasta === "string" && body.fechaHasta.length > 0
-        ? body.fechaHasta
-        : null;
-
-    const orderBy =
-      typeof body.orderBy === "string" &&
-      (ALLOWED_ORDER as readonly string[]).includes(body.orderBy)
-        ? body.orderBy
-        : "fechaRecepcion";
-
-    const direccion = body.direccion === "asc" ? "asc" : "desc";
+    const f = normalizeAlertFilters(body);
 
     await db.query(
       `
@@ -149,7 +108,15 @@ export async function PUT(request: NextRequest) {
         updated_at = NOW()
       WHERE id = 1
     `,
-      [searchText, tipoAdministracion, regionId, fechaDesde, fechaHasta, orderBy, direccion]
+      [
+        f.searchText,
+        f.tipoAdministracion,
+        f.regionId,
+        f.fechaDesde,
+        f.fechaHasta,
+        f.orderBy,
+        f.direccion,
+      ]
     );
 
     const result = await db.query(

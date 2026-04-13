@@ -1,33 +1,10 @@
+import type { GrantItem, GrantsSearchResult, SearchGrantsParams } from "@/lib/domain/grants";
+import { getCachedSearch, setCachedSearch } from "./search-cache";
+import { buildInfosubvencionesConvocatoriaUrl } from "./urls";
+
+export type { GrantItem, GrantsSearchResult, SearchGrantsParams } from "@/lib/domain/grants";
+
 type BdnsRawResponse = unknown;
-
-export type GrantItem = {
-  id: string;
-  title: string;
-  organization: string | null;
-  publicationDate: string | null;
-  deadlineDate: string | null;
-  amount: number | null;
-  sourceUrl: string | null;
-};
-
-export type GrantsSearchResult = {
-  items: GrantItem[];
-  total: number;
-  page: number;
-  pageSize: number;
-};
-
-export type SearchGrantsParams = {
-  q?: string;
-  page: number;
-  pageSize: number;
-  fechaDesde?: string;
-  fechaHasta?: string;
-  tipoAdministracion?: string;
-  order?: string;
-  direccion?: "asc" | "desc";
-  regionId?: number;
-};
 
 function getEnvNumber(name: string, fallback: number): number {
   const value = process.env[name];
@@ -158,9 +135,7 @@ function normalizeRawToGrants(
       typeof obj.numeroConvocatoria === "string" ? obj.numeroConvocatoria : null;
 
     const sourceUrl = numeroConvocatoria
-      ? `https://www.infosubvenciones.es/bdnstrans/GE/es/convocatoria/${encodeURIComponent(
-          numeroConvocatoria
-        )}`
+      ? buildInfosubvencionesConvocatoriaUrl(numeroConvocatoria)
       : null;
 
     return {
@@ -190,8 +165,16 @@ export async function searchGrants(
   const retries = getEnvNumber("BDNS_RETRIES", 2);
 
   const url = buildSearchUrl(endpoint, params);
+
+  const cached = getCachedSearch(url);
+  if (cached) {
+    return cached;
+  }
+
   const res = await fetchWithRetry(url, retries, timeoutMs);
 
   const raw = (await res.json()) as BdnsRawResponse;
-  return normalizeRawToGrants(raw, params.page, params.pageSize);
+  const result = normalizeRawToGrants(raw, params.page, params.pageSize);
+  setCachedSearch(url, result);
+  return result;
 }

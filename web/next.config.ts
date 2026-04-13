@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Imagen Docker de producción (Dockerfile.prod) copia `.next/standalone`.
+  output: "standalone",
 };
 
 export default nextConfig;

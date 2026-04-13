@@ -1,28 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { db } from "@/lib/db";
-import { searchGrants, type GrantItem } from "@/lib/bdns/client";
+import { normalizeAlertFilters, type AlertFilters } from "@/lib/domain/alert-filters";
+import type { GrantItem } from "@/lib/domain/grants";
+import { searchGrants } from "@/lib/bdns/client";
 import { sendWeeklyDigestEmail } from "./mailer";
 import { sendWeeklyDigestTelegram } from "./telegram";
 import { ensureNotificationRecipientsTable } from "./notification-recipients";
-
-// Filtros persistidos en DB para cada perfil de alerta.
-type AlertFilters = {
-  searchText: string;
-  tipoAdministracion: "C" | "A" | "L" | "O" | null;
-  regionId: number | null;
-  fechaDesde: string | null;
-  fechaHasta: string | null;
-  orderBy:
-  | "numeroConvocatoria"
-  | "mrr"
-  | "nivel1"
-  | "nivel2"
-  | "nivel3"
-  | "fechaRecepcion"
-  | "descripcion"
-  | "descripcionLeng";
-  direccion: "asc" | "desc";
-};
+import { computeAlertsChannelOuterTimeoutMs } from "./channel-retry";
+import {
+  getAlertsTimeZone,
+  profileCronMatchesNow,
+  shouldRespectProfileCron,
+} from "./cron-match";
 
 // Modelo interno de perfil activo en memoria.
 type AlertProfile = {
@@ -30,6 +19,7 @@ type AlertProfile = {
   name: string;
   enabled: boolean;
   filters: AlertFilters;
+  scheduleCron: string | null;
 };
 
 type ProfileRunSummary = {
@@ -42,6 +32,8 @@ type ProfileRunSummary = {
 export type WeeklyRunResult = {
   runId: string;
   processedProfiles: number;
+  /** Perfiles habilitados omitidos porque su `schedule_cron` no coincide con este minuto (solo si `ALERTS_RESPECT_PROFILE_CRON`). */
+  profilesSkippedCron: number;
   profilesWithNews: number;
   totalNewItems: number;
   emailStatus: "sent" | "error";
@@ -67,51 +59,6 @@ export function isWeeklyRunInProgress(): boolean {
 }
 
 const DEFAULT_PAGE_SIZE = 40;
-const ALLOWED_TIPO_ADMIN = ["C", "A", "L", "O"] as const;
-const ALLOWED_ORDER = [
-  "numeroConvocatoria",
-  "mrr",
-  "nivel1",
-  "nivel2",
-  "nivel3",
-  "fechaRecepcion",
-  "descripcion",
-  "descripcionLeng",
-] as const;
-
-function normalizeFilters(input: unknown): AlertFilters {
-  // Sanitiza JSON libre de DB/API a un shape controlado por TypeScript.
-  const body = (input ?? {}) as Record<string, unknown>;
-
-  const tipoAdministracion =
-    typeof body.tipoAdministracion === "string" &&
-      (ALLOWED_TIPO_ADMIN as readonly string[]).includes(body.tipoAdministracion)
-      ? (body.tipoAdministracion as AlertFilters["tipoAdministracion"])
-      : null;
-
-  const orderBy =
-    typeof body.orderBy === "string" &&
-      (ALLOWED_ORDER as readonly string[]).includes(body.orderBy)
-      ? (body.orderBy as AlertFilters["orderBy"])
-      : "fechaRecepcion";
-
-  const direccion = body.direccion === "asc" ? "asc" : "desc";
-
-  return {
-    searchText: typeof body.searchText === "string" ? body.searchText : "",
-    tipoAdministracion,
-    regionId:
-      typeof body.regionId === "number" && Number.isInteger(body.regionId) && body.regionId > 0
-        ? body.regionId
-        : null,
-    fechaDesde:
-      typeof body.fechaDesde === "string" && body.fechaDesde.length > 0 ? body.fechaDesde : null,
-    fechaHasta:
-      typeof body.fechaHasta === "string" && body.fechaHasta.length > 0 ? body.fechaHasta : null,
-    orderBy,
-    direccion,
-  };
-}
 
 function mapProfileRow(row: Record<string, unknown>): AlertProfile {
   // Mapea fila SQL a modelo de dominio.
@@ -119,7 +66,8 @@ function mapProfileRow(row: Record<string, unknown>): AlertProfile {
     id: Number(row.id),
     name: String(row.name ?? ""),
     enabled: Boolean(row.enabled),
-    filters: normalizeFilters(row.filters_json),
+    filters: normalizeAlertFilters(row.filters_json),
+    scheduleCron: typeof row.schedule_cron === "string" ? row.schedule_cron : null,
   };
 }
 
@@ -127,6 +75,8 @@ async function ensureTables() {
   await ensureNotificationRecipientsTable();
 
   // Tabla de perfiles de alertas configurables.
+  // schedule_cron: si ALERTS_RESPECT_PROFILE_CRON=true, el runner solo procesa el perfil cuando
+  // este minuto coincide con la expresión (convive con ALERTS_AUTORUN_CRON del scheduler, p. ej. cada minuto).
   await db.query(`
     CREATE TABLE IF NOT EXISTS alert_profiles (
       id SERIAL PRIMARY KEY,
@@ -172,7 +122,7 @@ async function ensureTables() {
 async function getActiveProfiles(): Promise<AlertProfile[]> {
   // Solo perfiles habilitados; orden estable por fecha de creacion.
   const result = await db.query(`
-    SELECT id, name, enabled, filters_json
+    SELECT id, name, enabled, filters_json, schedule_cron
     FROM alert_profiles
     WHERE enabled = true
     ORDER BY created_at ASC
@@ -276,12 +226,17 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
 
     // 1) Carga perfiles activos.
     const profiles = await getActiveProfiles();
+    const respectCron = shouldRespectProfileCron();
+    const tz = getAlertsTimeZone();
+    const now = new Date();
 
     console.info(
       JSON.stringify({
         event: "weekly_run_started",
         runId,
         profilesCount: profiles.length,
+        respectProfileCron: respectCron,
+        timeZone: tz,
       })
     );
 
@@ -291,8 +246,22 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
       profileName: string;
       newItems: GrantItem[];
     }> = [];
+    let skippedCron = 0;
 
     for (const profile of profiles) {
+      if (respectCron && !profileCronMatchesNow(profile.scheduleCron, now, tz)) {
+        skippedCron += 1;
+        console.info(
+          JSON.stringify({
+            event: "weekly_run_profile_skipped_cron",
+            runId,
+            profileId: profile.id,
+            scheduleCron: profile.scheduleCron,
+          })
+        );
+        continue;
+      }
+
       // 2) Ejecuta busqueda BDNS por perfil.
       const result = await searchGrants(toSearchParams(profile.filters));
       const ids = toUniqueGrantIds(result.items);
@@ -351,9 +320,9 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
         profiles: digestProfiles,
       };
 
-      const timeoutMs = getTimeoutMs();
+      const timeoutMs = computeAlertsChannelOuterTimeoutMs(getTimeoutMs());
 
-      // 6) Envia ambos canales en paralelo con timeout por canal.
+      // 6) Envia ambos canales en paralelo con timeout por canal (incluye reintentos).
       const [emailResult, telegramResult] = await Promise.all([
         withTimeout(sendWeeklyDigestEmail(payload), timeoutMs, "email"),
         withTimeout(sendWeeklyDigestTelegram(payload), timeoutMs, "telegram"),
@@ -391,6 +360,7 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
       );
     }
 
+    const processedCount = profileSummaries.length;
     const profilesWithNews = profileSummaries.filter((p) => p.newItemsCount > 0).length;
     const totalNewItems = profileSummaries.reduce((acc, p) => acc + p.newItemsCount, 0);
 
@@ -399,6 +369,8 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
         event: "weekly_run_finished",
         runId,
         durationMs: Date.now() - startedAt,
+        processedProfiles: processedCount,
+        profilesSkippedCron: skippedCron,
         profilesWithNews,
         totalNewItems,
         dispatchStatus,
@@ -409,7 +381,8 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
 
     return {
       runId,
-      processedProfiles: profiles.length,
+      processedProfiles: processedCount,
+      profilesSkippedCron: skippedCron,
       profilesWithNews,
       totalNewItems,
       emailStatus,
