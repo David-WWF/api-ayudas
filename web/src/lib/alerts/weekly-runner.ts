@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { normalizeAlertFilters, type AlertFilters } from "@/lib/domain/alert-filters";
 import type { GrantItem } from "@/lib/domain/grants";
 import { searchGrants } from "@/lib/bdns/client";
+import { analyzeGrants, isAiConfigured, type GrantAiResult } from "@/lib/ai/grant-analyzer";
 import { sendWeeklyDigestEmail } from "./mailer";
 import { sendWeeklyDigestTelegram } from "./telegram";
 import { ensureNotificationRecipientsTable } from "./notification-recipients";
@@ -36,6 +37,7 @@ export type WeeklyRunResult = {
   profilesSkippedCron: number;
   profilesWithNews: number;
   totalNewItems: number;
+  aiAnalysis: { ran: boolean; model?: string; tokensUsed?: number; error?: string };
   emailStatus: "sent" | "error";
   emailMessage: string;
   telegramStatus: "sent" | "error";
@@ -116,6 +118,20 @@ async function ensureTables() {
       payload_json JSONB NOT NULL DEFAULT '[]'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `);
+
+  // Perfil de empresa (fila única): contexto de negocio para el análisis IA de convocatorias.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS company_profile (
+      id INTEGER PRIMARY KEY DEFAULT 1,
+      context_text TEXT NOT NULL DEFAULT '',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT company_profile_singleton CHECK (id = 1)
+    )
+  `);
+  await db.query(`
+    INSERT INTO company_profile (id) VALUES (1)
+    ON CONFLICT (id) DO NOTHING
   `);
 }
 
@@ -300,6 +316,41 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
         });
       }
     }
+    // ── Análisis IA (opcional, antes del envío) ──────────────────────
+    let aiInfo: WeeklyRunResult["aiAnalysis"] = { ran: false };
+    const aiMap = new Map<string, GrantAiResult>();
+
+    if (digestProfiles.length > 0 && isAiConfigured()) {
+      try {
+        const cpRow = await db.query(`SELECT context_text FROM company_profile WHERE id = 1`);
+        const companyContext = String(cpRow.rows[0]?.context_text ?? "");
+
+        if (companyContext.trim()) {
+          const allNewItems = digestProfiles.flatMap((p) => p.newItems);
+          const aiResult = await analyzeGrants(companyContext, allNewItems);
+
+          if (aiResult) {
+            aiInfo = { ran: true, model: aiResult.model, tokensUsed: aiResult.tokensUsed };
+            for (const r of aiResult.results) {
+              aiMap.set(r.grantId, r);
+            }
+            console.info(JSON.stringify({
+              event: "weekly_run_ai_completed",
+              runId,
+              model: aiResult.model,
+              tokensUsed: aiResult.tokensUsed,
+              analyzed: aiResult.results.length,
+            }));
+          }
+        }
+      } catch (aiError) {
+        const msg = aiError instanceof Error ? aiError.message : "Error IA desconocido";
+        aiInfo = { ran: false, error: msg };
+        console.error(JSON.stringify({ event: "weekly_run_ai_error", runId, error: msg }));
+      }
+    }
+    // ── Fin análisis IA ────────────────────────────────────────────
+
     let emailStatus: "sent" | "error" = "error";
     let emailMessage = "No ejecutado.";
     let telegramStatus: "sent" | "error" = "error";
@@ -318,6 +369,7 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
         runId,
         runAtIso: new Date().toISOString(),
         profiles: digestProfiles,
+        aiMap,
       };
 
       const timeoutMs = computeAlertsChannelOuterTimeoutMs(getTimeoutMs());
@@ -358,6 +410,22 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
         `,
         [runId, dispatchStatus, combinedError]
       );
+
+      // 8) Si hubo análisis IA, enriquece payload_json con scoring.
+      if (aiMap.size > 0) {
+        for (const dp of digestProfiles) {
+          const enriched = dp.newItems.map((item) => {
+            const ai = aiMap.get(item.id);
+            return ai
+              ? { ...item, aiRelevance: ai.relevance, aiReason: ai.reason }
+              : item;
+          });
+          await db.query(
+            `UPDATE alerts_history SET payload_json = $1::jsonb WHERE run_id = $2 AND profile_id = $3`,
+            [JSON.stringify(enriched), runId, dp.profileId],
+          );
+        }
+      }
     }
 
     const processedCount = profileSummaries.length;
@@ -385,6 +453,7 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
       profilesSkippedCron: skippedCron,
       profilesWithNews,
       totalNewItems,
+      aiAnalysis: aiInfo,
       emailStatus,
       emailMessage,
       telegramStatus,

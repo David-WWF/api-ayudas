@@ -36,6 +36,7 @@ En cada corrida programada (`ALERTS_AUTORUN_CRON`) se hace lo siguiente:
   - `grants_snapshot`: deduplicacion por perfil.
   - `alerts_history`: auditoria de ejecuciones.
   - `global_filters`: una fila (`id = 1`) con los filtros de búsqueda por defecto de la pantalla principal (texto, administración, fechas, orden).
+  - `company_profile`: una fila (`id = 1`) con `context_text` (descripción de la empresa para el futuro análisis IA).
 - **Servicios externos:**
   - BDNS (fuente de convocatorias).
   - SMTP (envio email).
@@ -165,6 +166,14 @@ Todas las rutas bajo `/api` son la **BFF** (el navegador no llama a BDNS directa
 | `POST` | `/api/settings/notification-recipients` | Crea (`channel`, `address`, `label`, `enabled`). |
 | `PUT` | `/api/settings/notification-recipients/[id]` | Parche de campos. |
 | `DELETE` | `/api/settings/notification-recipients/[id]` | Elimina. |
+| `GET` | `/api/settings/company-profile` | Lee el perfil de empresa (contexto IA, fila unica). |
+| `PUT` | `/api/settings/company-profile` | Actualiza `contextText` (texto libre). |
+
+### Análisis IA
+
+| Metodo | Ruta | Descripcion |
+|--------|------|-------------|
+| `POST` | `/api/ai/analyze-test` | Prueba aislada: analiza convocatorias con el perfil de empresa guardado. Body opcional `{ grants: [...] }`; sin body usa las ultimas 5 del snapshot. Requiere `OPENAI_API_KEY`. |
 
 ### Salud y job
 
@@ -212,6 +221,10 @@ Definidas en `web/.env.local` (no versionado). Hay una **plantilla** comentada e
 - **Telegram**
   - `TELEGRAM_BOT_TOKEN`
   - `TELEGRAM_CHAT_ID` (fallback si no hay filas `telegram` activas en BD)
+- **IA (análisis de convocatorias)**
+  - `OPENAI_API_KEY` (secreto; sin ella el sistema funciona sin sección IA)
+  - `AI_MODEL` (por defecto `gpt-4o-mini`)
+  - `AI_MAX_GRANTS_PER_CALL` (máximo de convocatorias por llamada, por defecto `30`)
 
 **Compose (`docker-compose.yml`):** además fija `NODE_ENV`, `NEXT_TELEMETRY_DISABLED`, `WATCHPACK_POLLING` en el servicio `app` (desarrollo con volúmenes montados); no suelen duplicarse en `.env.local` salvo que quieras sobreescribir.
 
@@ -358,3 +371,28 @@ Problemas tipicos:
 - El frontend no habla directo con BDNS: pasa por BFF para reducir acoplamiento.
 - La configuracion sensible vive en variables de entorno.
 - El diseno de capas deja base para evolucion futura (mas canales, multi-tenant, etc.).
+
+---
+
+## Roadmap — Parte 2: Análisis IA de convocatorias
+
+Próxima evolución del producto: en lugar de solo notificar convocatorias nuevas, **analizarlas automáticamente** con IA para indicar cuáles encajan con la empresa.
+
+| Bloque | Descripción | Estado |
+| ------ | ----------- | ------ |
+| 8 | **Perfil de empresa** — tabla `company_profile` + API + UI para describir sector, tamaño, ubicación e intereses. | Completado |
+| 9 | **Módulo grant-analyzer** — `lib/ai/grant-analyzer.ts`; llamada a OpenAI (`gpt-4o-mini`) con contexto de empresa + convocatorias; devuelve relevancia (alta/media/baja) + motivo. | Completado |
+| 10 | **Integrar IA en el job** — en `weekly-runner.ts`, tras detectar novedades y antes del envío; degradación limpia si no hay API key o perfil. | Completado |
+| 11 | **Digest enriquecido** — sección "Recomendación IA" al inicio de email (tabla HTML) y Telegram (lista compacta); ordenado por prioridad; disclaimer de sugerencia. | Completado |
+| 12 | **Scraping de elegibilidad** — extraer tipo de beneficiario, sector económico y región de impacto de la ficha de infosubvenciones.es; enriquecer prompt IA para descartar ayudas no elegibles. | Pendiente |
+
+### Variables de entorno nuevas (Parte 2)
+
+| Variable | Descripción | Por defecto |
+| -------- | ----------- | ----------- |
+| `OPENAI_API_KEY` | Clave de la API de OpenAI (secreto). | — |
+| `AI_MODEL` | Modelo de OpenAI a usar. | `gpt-4o-mini` |
+| `AI_MAX_GRANTS_PER_CALL` | Máximo de convocatorias a analizar por corrida. | `30` |
+| `AI_SCRAPE_DETAIL` | Activar scraping de ficha de detalle antes del análisis IA. | `true` |
+
+> **Principio clave:** si la IA falla o no está configurada, el sistema sigue funcionando exactamente igual que antes (solo se omite la sección de recomendación).

@@ -31,3 +31,12 @@ Proyecto interno **Buscador de Ayudas**: búsqueda de convocatorias (BDNS), perf
 3. Interfaz: [http://localhost:3000](http://localhost:3000).
 
 La documentación detallada (tablas de BD, endpoints, logs, backups) está en **`web/README.md`**.
+
+## Roadmap
+
+| Fase | Contenido | Estado |
+|------|-----------|--------|
+| **Parte 1** (Bloques 1-7) | Buscador, alertas multi-perfil, email+Telegram, hardening, capas de código | Completada |
+| **Parte 2** (Bloques 8-12) | Análisis IA de convocatorias con OpenAI: perfil de empresa, scoring de relevancia, digest enriquecido, scraping de elegibilidad | Bloques 8-11 completados, Bloque 12 pendiente |
+
+Detalles de cada bloque en el [plan interno](.cursor/plans/plan_interno_ayudas_docker_bebc1756.plan.md) y en la sección "Roadmap — Parte 2" de [`web/README.md`](web/README.md).

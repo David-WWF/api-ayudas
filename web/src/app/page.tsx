@@ -162,6 +162,13 @@ export default function Home() {
   const [newRecipientAddress, setNewRecipientAddress] = useState("");
   const [newRecipientLabel, setNewRecipientLabel] = useState("");
 
+  // Perfil de empresa (contexto para análisis IA)
+  const [companyContext, setCompanyContext] = useState("");
+  const [companyContextSaved, setCompanyContextSaved] = useState("");
+  const [companyContextLoading, setCompanyContextLoading] = useState(false);
+  const [companyContextSaving, setCompanyContextSaving] = useState(false);
+  const [companyContextMsg, setCompanyContextMsg] = useState<string | null>(null);
+
   // Form nuevo perfil
   const [newProfileName, setNewProfileName] = useState("Nueva alerta");
   const [newProfileSearch, setNewProfileSearch] = useState("");
@@ -392,6 +399,46 @@ export default function Home() {
       setRecipientsError(err instanceof Error ? err.message : "Error cargando destinatarios");
     } finally {
       setRecipientsLoading(false);
+    }
+  }
+
+  async function loadCompanyProfile() {
+    setCompanyContextLoading(true);
+    setCompanyContextMsg(null);
+    try {
+      const res = await fetch("/api/settings/company-profile", { cache: "no-store" });
+      const json = (await res.json()) as { ok: boolean; data?: { contextText: string }; error?: string };
+      if (res.ok && json.ok && json.data) {
+        setCompanyContext(json.data.contextText);
+        setCompanyContextSaved(json.data.contextText);
+      }
+    } catch {
+      // no bloquea
+    } finally {
+      setCompanyContextLoading(false);
+    }
+  }
+
+  async function saveCompanyProfile() {
+    setCompanyContextSaving(true);
+    setCompanyContextMsg(null);
+    try {
+      const res = await fetch("/api/settings/company-profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contextText: companyContext }),
+      });
+      const json = (await res.json()) as { ok: boolean; data?: { contextText: string }; error?: string };
+      if (!res.ok || !json.ok) throw new Error(json.error ?? "Error guardando perfil de empresa");
+      if (json.data) {
+        setCompanyContext(json.data.contextText);
+        setCompanyContextSaved(json.data.contextText);
+      }
+      setCompanyContextMsg("Perfil de empresa guardado.");
+    } catch (err) {
+      setCompanyContextMsg(err instanceof Error ? err.message : "Error guardando perfil de empresa");
+    } finally {
+      setCompanyContextSaving(false);
     }
   }
 
@@ -772,6 +819,7 @@ export default function Home() {
                 setProfilesModalOpen(true);
                 void loadProfiles();
                 void loadRecipients();
+                void loadCompanyProfile();
               }}
             >
               <svg
@@ -1098,6 +1146,45 @@ export default function Home() {
               </button>
 
               <h2 className={styles.modalTitle}>Gestión de alertas</h2>
+
+              <h3 className={styles.modalSectionTitle}>Perfil de empresa (contexto para IA)</h3>
+
+              <p className={styles.modalHint}>
+                Describe tu empresa: sector, tamaño, ubicación, intereses y criterios de
+                descarte. Este texto se usará como contexto para que la IA analice qué
+                convocatorias son relevantes para vosotros.
+              </p>
+
+              {companyContextLoading ? (
+                <p>Cargando perfil de empresa...</p>
+              ) : (
+                <>
+                  <textarea
+                    className={styles.companyProfileTextarea}
+                    rows={5}
+                    placeholder="Ej: Somos una PYME tecnológica de 12 empleados en Madrid, sector TIC. Nos interesan ayudas de I+D+i, digitalización y contratación. Descartamos ayudas agrarias y del sector pesquero."
+                    value={companyContext}
+                    onChange={(e) => {
+                      setCompanyContext(e.target.value);
+                      setCompanyContextMsg(null);
+                    }}
+                  />
+                  <div className={`${styles.actions} ${styles.modalActions}`}>
+                    <button
+                      type="button"
+                      disabled={companyContextSaving || companyContext === companyContextSaved}
+                      onClick={() => void saveCompanyProfile()}
+                    >
+                      {companyContextSaving ? "Guardando..." : "Guardar perfil de empresa"}
+                    </button>
+                  </div>
+                  {companyContextMsg ? (
+                    <p className={styles.modalHint}>{companyContextMsg}</p>
+                  ) : null}
+                </>
+              )}
+
+              <h3 className={styles.modalSectionTitle}>Destinatarios del resumen</h3>
 
               <p className={styles.modalHint}>
                 Los envíos usan el bot y SMTP configurados en el servidor. Aquí defines{" "}

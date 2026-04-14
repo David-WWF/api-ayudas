@@ -6,6 +6,7 @@ import {
   getAlertsChannelRetryDelayMs,
   sleep,
 } from "./channel-retry";
+import type { GrantAiResult } from "@/lib/ai/grant-analyzer";
 
 type DigestItem = {
   id: string;
@@ -27,6 +28,7 @@ type SendWeeklyDigestInput = {
   runId: string;
   runAtIso: string;
   profiles: DigestProfile[];
+  aiMap?: Map<string, GrantAiResult>;
 };
 
 export type SendWeeklyDigestTelegramResult = {
@@ -75,21 +77,72 @@ function splitByBlocks(header: string, blocks: string[], limit: number): string[
   return chunks;
 }
 
-function buildTelegramMessages(input: SendWeeklyDigestInput): string[] {
-  // Cabecera de contexto para identificar corrida, fecha y volumen.
-  const totalNew = input.profiles.reduce((acc, p) => acc + p.newItems.length, 0);
+const RELEVANCE_ORDER: Record<string, number> = { alta: 0, media: 1, baja: 2 };
+const RELEVANCE_EMOJI: Record<string, string> = { alta: "🟢", media: "🟡", baja: "🔴" };
+const RELEVANCE_LABEL: Record<string, string> = { alta: "ALTA", media: "MEDIA", baja: "BAJA" };
 
-  const header = [
-    getDigestTelegramBanner(),
-    `Run ID: ${input.runId}`,
-    `Fecha: ${input.runAtIso}`,
-    `Perfiles con novedades: ${input.profiles.length}`,
-    `Total nuevas convocatorias: ${totalNew}`,
-    "",
-    "DETALLE POR PERFIL",
-    "------------------",
-  ].join("\n");
+type ItemWithAi = { item: DigestItem; ai: GrantAiResult | undefined };
 
+function relevanceSortKey(entry: ItemWithAi): number {
+  const r = entry.ai?.relevance?.toLowerCase().trim() ?? "baja";
+  return RELEVANCE_ORDER[r] ?? 2;
+}
+
+function sortByRelevance(items: DigestItem[], aiMap: Map<string, GrantAiResult>): ItemWithAi[] {
+  return items
+    .map((item) => ({ item, ai: aiMap.get(item.id) }))
+    .sort((a, b) => {
+      const diff = relevanceSortKey(a) - relevanceSortKey(b);
+      if (diff !== 0) return diff;
+      return a.item.title.localeCompare(b.item.title, "es");
+    });
+}
+
+function hasAiResults(input: SendWeeklyDigestInput): boolean {
+  const { aiMap } = input;
+  if (!aiMap || aiMap.size === 0) return false;
+  return input.profiles.some((p) => p.newItems.some((item) => aiMap.has(item.id)));
+}
+
+/* ---------- Con IA: un bloque por perfil, todas detalladas ---------- */
+
+function buildAiTelegramBlocks(input: SendWeeklyDigestInput): string[] {
+  const { aiMap } = input;
+  const blocks: string[] = [];
+
+  for (const profile of input.profiles) {
+    const sorted = sortByRelevance(profile.newItems, aiMap!);
+
+    const shown = sorted.slice(0, MAX_ITEMS_PER_PROFILE);
+    const lines: string[] = [];
+    lines.push(`📋 ${profile.profileName} (${profile.newItems.length} novedades)`);
+    lines.push("");
+
+    shown.forEach(({ item, ai }, idx) => {
+      const relevance = ai?.relevance ?? "baja";
+      const emoji = RELEVANCE_EMOJI[relevance] ?? "🔴";
+      const label = RELEVANCE_LABEL[relevance] ?? "BAJA";
+      lines.push(`${idx + 1}. ${emoji} [${label}] ${truncate(item.title, 120)}`);
+      if (ai?.reason) lines.push(`   ${truncate(ai.reason, 150)}`);
+      if (item.sourceUrl) lines.push(`   ${item.sourceUrl}`);
+      lines.push("");
+    });
+
+    if (profile.newItems.length > shown.length) {
+      lines.push(`... y ${profile.newItems.length - shown.length} más (ver email).`);
+      lines.push("");
+    }
+
+    lines.push("--------------------------------------------------");
+    blocks.push(lines.join("\n"));
+  }
+
+  return blocks;
+}
+
+/* ---------- Sin IA: formato clásico por perfil ---------- */
+
+function buildClassicTelegramBlocks(input: SendWeeklyDigestInput): string[] {
   const blocks: string[] = [];
 
   for (const profile of input.profiles) {
@@ -99,7 +152,6 @@ function buildTelegramMessages(input: SendWeeklyDigestInput): string[] {
     lines.push("");
 
     const shown = profile.newItems.slice(0, MAX_ITEMS_PER_PROFILE);
-    // Limitamos items por perfil para no saturar Telegram.
 
     shown.forEach((item, index) => {
       lines.push(`${index + 1}) ${truncate(item.title, 140)}`);
@@ -111,7 +163,6 @@ function buildTelegramMessages(input: SendWeeklyDigestInput): string[] {
     });
 
     if (profile.newItems.length > shown.length) {
-      // Indicamos que hay mas detalle en email.
       lines.push(
         `... y ${profile.newItems.length - shown.length} mas (ver email para detalle completo).`
       );
@@ -120,6 +171,34 @@ function buildTelegramMessages(input: SendWeeklyDigestInput): string[] {
     lines.push("--------------------------------------------------");
     blocks.push(lines.join("\n"));
   }
+
+  return blocks;
+}
+
+function buildTelegramMessages(input: SendWeeklyDigestInput): string[] {
+  const totalNew = input.profiles.reduce((acc, p) => acc + p.newItems.length, 0);
+  const useAi = hasAiResults(input);
+
+  const headerLines = [
+    getDigestTelegramBanner(),
+    `Run ID: ${input.runId}`,
+    `Fecha: ${input.runAtIso}`,
+    `Perfiles con novedades: ${input.profiles.length}`,
+    `Total nuevas convocatorias: ${totalNew}`,
+  ];
+
+  if (useAi) {
+    headerLines.push("");
+    headerLines.push("🤖 RECOMENDACIÓN IA");
+    headerLines.push("Sugerencia automática según perfil de empresa.");
+    headerLines.push("⚠️ Verificar condiciones oficiales.");
+  }
+
+  const header = headerLines.join("\n");
+
+  const blocks = useAi
+    ? buildAiTelegramBlocks(input)
+    : buildClassicTelegramBlocks(input);
 
   return splitByBlocks(header, blocks, TELEGRAM_SAFE_LIMIT);
 }

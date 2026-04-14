@@ -16,6 +16,8 @@ const DOCUMENTED_ROUTE_SEGMENTS: string[][] = [
   ["settings", "alert-profiles", "[id]"],
   ["settings", "notification-recipients"],
   ["settings", "notification-recipients", "[id]"],
+  ["settings", "company-profile"],
+  ["ai", "analyze-test"],
   ["health"],
   ["alerts", "weekly", "run"],
 ];

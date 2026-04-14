@@ -26,6 +26,21 @@ todos:
   - id: bloque-7-evolucion
     content: "Capas UI/BFF/dominio/BDNS documentadas; lib/domain + bdns/detail/regions/urls; guía multi-tenant en docs/evolucion-multi-tenant.md."
     status: completed
+  - id: bloque-8-perfil-empresa
+    content: "Parte 2 — Análisis IA: perfil de empresa persistido en BD + UI de edición en ajustes."
+    status: completed
+  - id: bloque-9-analisis-ia
+    content: "Parte 2 — Módulo grant-analyzer (OpenAI): prompt con contexto de empresa + convocatorias, scoring relevancia alta/media/baja + motivo."
+    status: completed
+  - id: bloque-10-ia-en-job
+    content: "Parte 2 — Integrar análisis IA en el job: tras detectar novedades, antes del envío, clasificar cada convocatoria nueva."
+    status: completed
+  - id: bloque-11-digest-ia
+    content: "Parte 2 — Enriquecer email y Telegram con sección de recomendación IA (relevancia + motivo por convocatoria)."
+    status: completed
+  - id: bloque-12-scraping-beneficiario
+    content: "Parte 2 — Scraping de detalle: extraer tipo de beneficiario elegible, sector y región de impacto de cada convocatoria para alimentar el prompt de IA."
+    status: pending
 isProject: false
 ---
 
@@ -199,6 +214,14 @@ Tablas mínimas sugeridas (enfoque multi-alerta):
 - Bloque 6: **Completado** (reintentos por canal con backoff, ampliación del timeout del runner; caché en memoria de búsquedas BDNS vía `BDNS_SEARCH_CACHE_TTL_SECONDS`).
 - Bloque 7: **Completado** (capas y guía de evolución; ver `docs/evolucion-multi-tenant.md`).
 
+---
+
+- Bloque 8: **Completado** (tabla `company_profile`, API GET/PUT, sección en modal).
+- Bloque 9: **Completado** (módulo `lib/ai/grant-analyzer.ts`, SDK OpenAI, endpoint de prueba `/api/ai/analyze-test`).
+- Bloque 10: **Completado** (IA integrada en `weekly-runner.ts`: lee `company_profile`, llama a `analyzeGrants`, pasa `aiMap` a canales, persiste scoring en `alerts_history`).
+- Bloque 11: **Completado** (email: sección "Recomendación IA" con tabla HTML ordenada por prioridad + links; Telegram: bloque compacto con emoji + links, bajas solo contadas; disclaimer en ambos).
+- Bloque 12: **Pendiente** (scraping de detalle de convocatoria: tipo beneficiario, sector, región → enriquecer prompt IA).
+
 ### Bloque 6 - Hardening para uso interno
 
 **Qué aprenderás**: calidad mínima operativa antes de escalar.
@@ -211,6 +234,123 @@ Tablas mínimas sugeridas (enfoque multi-alerta):
 
 - **Hecho:** separación explícita `web/src/lib/domain` (tipos + `normalizeAlertFilters`), integración BDNS concentrada en `web/src/lib/bdns` (`urls`, `client`, `detail`, `regions`, caché), BFF en `route.ts`, guía `docs/evolucion-multi-tenant.md` en la raíz del repo.
 - Configuración sensible sigue en variables de entorno; checklist de producto en la misma guía.
+
+---
+
+# Parte 2 — Análisis IA de convocatorias
+
+## Objetivo
+
+Pasar de **vigilancia** ("hay N convocatorias nuevas") a **recomendación** ("de esas N, estas 3 encajan con vuestra empresa porque…"). El análisis se ejecuta dentro del job existente (opción A: **antes** de enviar email/Telegram), de forma que el digest que llega ya incluye scoring y motivos.
+
+## Requisitos previos
+
+- Cuenta en **OpenAI** (o proveedor compatible) con API key.
+- Definir un **perfil de empresa** (sector, tamaño, ubicación, intereses) para que la IA tenga contexto.
+
+## Bloques de implementación (Parte 2)
+
+### Bloque 8 - Perfil de empresa ✔
+
+**Qué aprenderás**: persistir contexto de negocio que alimentará a la IA.
+
+- **Hecho:** tabla `company_profile` (fila única id=1, `context_text` TEXT, `updated_at`), creada en `ensureTables` de `weekly-runner.ts` y en la propia route.
+- API: `GET /api/settings/company-profile`, `PUT /api/settings/company-profile` (patrón fila única como `global-filters`).
+- UI: sección "Perfil de empresa (contexto para IA)" al inicio del modal "Gestión de alertas" con textarea y botón guardar.
+- Test actualizado: `documented-api-routes.test.ts` incluye la nueva ruta.
+- Sin IA aún: solo persiste el contexto para usarlo en el bloque 9.
+
+### Bloque 9 - Módulo de análisis IA (grant-analyzer) ✔
+
+**Qué aprenderás**: integrar una API de LLM en tu backend.
+
+- **Hecho:** módulo `web/src/lib/ai/grant-analyzer.ts` con SDK oficial `openai`.
+- Función `analyzeGrants(companyContext, grants)` → `AnalyzeGrantsResult | null`.
+  - **Input**: perfil de empresa (texto) + lista de `GrantItem`.
+  - **Output**: por cada convocatoria → `relevance` (alta / media / baja) + `reason` (1 frase).
+  - Devuelve `null` si falta API key o perfil (degradación limpia).
+- Prompt de clasificación (no generación libre): respuesta JSON estricta, `temperature: 0.2`.
+- Parser robusto: si la IA devuelve algo inesperado, se asigna `media` con aviso.
+- Endpoint de prueba aislada: `POST /api/ai/analyze-test` (acepta body con convocatorias o usa snapshot).
+- Variables: `OPENAI_API_KEY`, `AI_MODEL` (defecto `gpt-4o-mini`), `AI_MAX_GRANTS_PER_CALL` (defecto `30`).
+
+### Bloque 10 - Integrar análisis IA en el job ✔
+
+**Qué aprenderás**: componer un paso nuevo en un pipeline existente sin romperlo.
+
+- **Hecho:** en `weekly-runner.ts`, tras detectar novedades y antes del envío:
+  - Lee `company_profile` de BD.
+  - Si hay `OPENAI_API_KEY` + perfil de empresa → `analyzeGrants` con todas las novedades.
+  - Si no hay clave, perfil vacío, o la IA falla → el job sigue igual que antes (degradación limpia).
+- `aiMap` (Map<grantId, GrantAiResult>) se pasa al payload de email y Telegram (preparado para Bloque 11).
+- Tras envío, `alerts_history.payload_json` se actualiza con `aiRelevance` + `aiReason` por item.
+- `WeeklyRunResult` incluye `aiAnalysis: { ran, model, tokensUsed, error }`.
+- Logs: `weekly_run_ai_completed` / `weekly_run_ai_error`.
+
+### Bloque 11 - Enriquecer email y Telegram con recomendación IA ✔
+
+**Qué aprenderás**: presentar resultados de IA de forma útil al usuario final.
+
+- **Hecho — Email** (`mailer.ts`): sección "🤖 Recomendación IA" al inicio con tabla HTML (badge color, motivo, link) ordenada por prioridad; versión texto plano equivalente.
+- **Hecho — Telegram** (`telegram.ts`): bloque "🤖 RECOMENDACIÓN IA" como primer bloque, lista numerada con emoji, las de baja solo contadas, disclaimer.
+- Si no hubo análisis IA la sección no aparece (compatible sin clave).
+- Siempre se presenta como **sugerencia** ("verificar condiciones oficiales").
+
+### Bloque 12 - Scraping de detalle: tipo de beneficiario elegible ⏳
+
+**Qué aprenderás**: web scraping responsable y enriquecimiento de datos para mejorar la calidad de un pipeline de IA.
+
+**Problema que resuelve**: actualmente la IA solo recibe título, organismo y fecha de cada convocatoria. No sabe si el beneficiario elegible es "personas jurídicas", "autónomos", "entidades locales", etc. Tampoco conoce el sector económico ni la región de impacto. Sin este dato la IA puede recomendar ayudas para las que la empresa no es elegible.
+
+**Fuente de datos**: ficha de detalle en [infosubvenciones.es](https://www.infosubvenciones.es/bdnstrans/GE/es/convocatorias/{id}). Campos objetivo:
+
+| Campo web | Uso en prompt IA |
+|-----------|-----------------|
+| Tipo de beneficiario elegible | Descartar si la empresa no encaja en la categoría (ej. "persona física", "entidad local") |
+| Sector económico del beneficiario | Cruzar con el sector de la empresa |
+| Región de impacto | Cruzar con la ubicación de la empresa |
+| Finalidad (política de gasto) | Contexto adicional para la valoración |
+
+**Pasos técnicos**:
+
+1. **Investigar API BDNS**: comprobar si el JSON de `/convocatorias?numConv=X` ya devuelve estos campos (evitaría scraping). Si no, continuar con scraping HTML.
+2. **Módulo de scraping** (`lib/bdns/scrape-detail.ts`):
+   - `fetchGrantEligibility(grantId)` → `{ beneficiaryType, economicSector, impactRegion, purpose }`.
+   - Parsear HTML de la ficha de infosubvenciones con regex o `cheerio` (ligero).
+   - Timeout + fallback a `null` si la página no responde (no bloquear el pipeline).
+3. **Enriquecer datos antes de la IA** (en `weekly-runner.ts`):
+   - Para cada convocatoria nueva, obtener datos de elegibilidad (en paralelo con concurrencia limitada para no saturar el servidor).
+   - Caché en BD o en memoria para no volver a scrapear convocatorias ya vistas.
+4. **Actualizar prompt** (`grant-analyzer.ts`):
+   - Incluir campos de elegibilidad en `buildPrompt()`.
+   - La IA podrá decir "BAJA — beneficiario debe ser persona física, no encaja con empresa" o "ALTA — sector y región coinciden".
+5. **Variable de entorno nueva**: `AI_SCRAPE_DETAIL` (boolean, defecto `true`) para poder desactivar el scraping si genera problemas de rendimiento.
+
+**Riesgos y mitigación**:
+- **Tasa de peticiones**: hacer peticiones con concurrencia limitada (ej. 3 simultáneas) y un delay entre lotes para no ser bloqueados.
+- **Cambios en el HTML**: el parser debe ser robusto y devolver `null` si no encuentra un campo (la IA sigue funcionando con datos parciales).
+- **Latencia**: scrapear 30 fichas puede tardar 10-20 s; ajustar timeout del job si es necesario.
+
+## Modelo de datos adicional (Parte 2)
+
+- `company_profile`: id (fila única), `context_text` (TEXT), `updated_at`.
+- Ampliación de `alerts_history.payload_json`: cada item puede incluir `aiRelevance` y `aiReason` si se ejecutó análisis.
+
+## Variables de entorno nuevas (Parte 2)
+
+- `OPENAI_API_KEY` — clave de API de OpenAI (secreto, no en BD).
+- `AI_MODEL` — modelo a usar (por defecto `gpt-4o-mini`).
+- `AI_MAX_GRANTS_PER_CALL` — máximo de convocatorias a enviar por llamada (por defecto `30`).
+
+## Riesgos y mitigación (Parte 2)
+
+- **IA se equivoca** → presentar siempre como sugerencia, no como decisión definitiva.
+- **Coste API** → `gpt-4o-mini` es barato (~fracciones de céntimo por corrida diaria); limitar con `AI_MAX_GRANTS_PER_CALL`.
+- **Latencia** → una llamada 2-5 s; agrupar convocatorias en un solo prompt.
+- **Fallo de OpenAI** → degradación limpia: el digest se envía sin sección IA.
+- **Datos sensibles** → el perfil de empresa se envía a OpenAI; valorar si hay información confidencial.
+
+---
 
 ## Organización de seguimiento para tu supervisor
 

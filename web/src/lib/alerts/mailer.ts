@@ -7,6 +7,7 @@ import {
   getAlertsChannelRetryDelayMs,
   sleep,
 } from "./channel-retry";
+import type { GrantAiResult } from "@/lib/ai/grant-analyzer";
 
 // Estructura minima de una convocatoria incluida en el resumen.
 type DigestItem = {
@@ -29,6 +30,7 @@ type SendWeeklyDigestInput = {
   runId: string;
   runAtIso: string;
   profiles: DigestProfile[];
+  aiMap?: Map<string, GrantAiResult>;
 };
 
 export type SendWeeklyDigestResult = {
@@ -61,8 +63,69 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#039;");
 }
 
-function buildTextBody(input: SendWeeklyDigestInput): string {
-  // Version texto plano del resumen (util para clientes sin HTML).
+const RELEVANCE_ORDER: Record<string, number> = { alta: 0, media: 1, baja: 2 };
+const RELEVANCE_LABEL: Record<string, string> = { alta: "ALTA", media: "MEDIA", baja: "BAJA" };
+const RELEVANCE_COLOR: Record<string, string> = { alta: "#16a34a", media: "#ca8a04", baja: "#dc2626" };
+const RELEVANCE_EMOJI: Record<string, string> = { alta: "🟢", media: "🟡", baja: "🔴" };
+
+type ItemWithAi = { item: DigestItem; ai: GrantAiResult | undefined };
+
+function relevanceSortKey(entry: ItemWithAi): number {
+  const r = entry.ai?.relevance?.toLowerCase().trim() ?? "baja";
+  return RELEVANCE_ORDER[r] ?? 2;
+}
+
+function sortByRelevance(items: DigestItem[], aiMap: Map<string, GrantAiResult>): ItemWithAi[] {
+  return items
+    .map((item) => ({ item, ai: aiMap.get(item.id) }))
+    .sort((a, b) => {
+      const diff = relevanceSortKey(a) - relevanceSortKey(b);
+      if (diff !== 0) return diff;
+      return a.item.title.localeCompare(b.item.title, "es");
+    });
+}
+
+function hasAiResults(input: SendWeeklyDigestInput): boolean {
+  const { aiMap } = input;
+  if (!aiMap || aiMap.size === 0) return false;
+  return input.profiles.some((p) => p.newItems.some((item) => aiMap.has(item.id)));
+}
+
+/* ---------- Texto plano: con IA (agrupado por perfil) ---------- */
+
+function buildAiTextBody(input: SendWeeklyDigestInput): string {
+  const { aiMap } = input;
+  const lines: string[] = [];
+  lines.push(getDigestTitleFull());
+  lines.push(`Run ID: ${input.runId}`);
+  lines.push(`Fecha ejecución: ${input.runAtIso}`);
+  lines.push("");
+  lines.push("=== 🤖 RECOMENDACIÓN IA ===");
+  lines.push("Análisis automático basado en el perfil de tu empresa (sugerencia, verificar condiciones oficiales).");
+  lines.push("");
+
+  for (const profile of input.profiles) {
+    const sorted = sortByRelevance(profile.newItems, aiMap!);
+
+    lines.push(`--- ${profile.profileName} (${profile.newItems.length} novedades) ---`);
+    lines.push("");
+
+    sorted.forEach(({ item, ai }, idx) => {
+      const label = RELEVANCE_LABEL[ai?.relevance ?? "baja"] ?? "BAJA";
+      lines.push(`${idx + 1}. [${label}] ${item.title}`);
+      if (ai?.reason) lines.push(`   ${ai.reason}`);
+      if (item.sourceUrl) lines.push(`   ${item.sourceUrl}`);
+      lines.push("");
+    });
+  }
+
+  lines.push("⚠️ Verificar siempre las condiciones oficiales de cada convocatoria.");
+  return lines.join("\n");
+}
+
+/* ---------- Texto plano: sin IA (formato clásico) ---------- */
+
+function buildClassicTextBody(input: SendWeeklyDigestInput): string {
   const lines: string[] = [];
   lines.push(getDigestTitleFull());
   lines.push(`Run ID: ${input.runId}`);
@@ -87,8 +150,83 @@ function buildTextBody(input: SendWeeklyDigestInput): string {
   return lines.join("\n");
 }
 
-function buildHtmlBody(input: SendWeeklyDigestInput): string {
-  // Version HTML del resumen, mas legible para la mayoria de clientes.
+function buildTextBody(input: SendWeeklyDigestInput): string {
+  return hasAiResults(input) ? buildAiTextBody(input) : buildClassicTextBody(input);
+}
+
+/* ---------- HTML: con IA (agrupado por perfil) ---------- */
+
+function buildAiProfileHtml(profile: DigestProfile, aiMap: Map<string, GrantAiResult>): string {
+  const sorted = sortByRelevance(profile.newItems, aiMap);
+
+  const rows = sorted
+    .map(({ item, ai }, idx) => {
+      const relevance = ai?.relevance ?? "baja";
+      const color = RELEVANCE_COLOR[relevance] ?? "#dc2626";
+      const emoji = RELEVANCE_EMOJI[relevance] ?? "🔴";
+      const label = RELEVANCE_LABEL[relevance] ?? "BAJA";
+      const reason = ai?.reason ? escapeHtml(ai.reason) : "";
+      const link = item.sourceUrl
+        ? `<a href="${escapeHtml(item.sourceUrl)}" target="_blank" rel="noreferrer" style="color:#2563eb;">Ver ayuda</a>`
+        : "";
+
+      return `
+        <tr>
+          <td style="padding:8px 6px; vertical-align:top; font-size:14px; border-bottom:1px solid #e5e7eb;">${idx + 1}</td>
+          <td style="padding:8px 6px; vertical-align:top; border-bottom:1px solid #e5e7eb;">
+            <span style="display:inline-block; padding:2px 8px; border-radius:4px; font-size:12px; font-weight:bold; color:#fff; background:${color};">${emoji} ${label}</span>
+          </td>
+          <td style="padding:8px 6px; vertical-align:top; border-bottom:1px solid #e5e7eb;">
+            <strong style="font-size:14px;">${escapeHtml(item.title)}</strong><br/>
+            ${reason ? `<span style="font-size:13px; color:#4b5563;">${reason}</span><br/>` : ""}
+            ${link}
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  return `
+    <section style="margin-bottom:20px;">
+      <h4 style="margin:0 0 8px 0; color:#374151;">${escapeHtml(profile.profileName)} <span style="font-weight:normal; font-size:13px; color:#6b7280;">(${profile.newItems.length} novedades)</span></h4>
+      <table style="width:100%; border-collapse:collapse;">
+        <thead>
+          <tr style="text-align:left;">
+            <th style="padding:6px; font-size:12px; color:#6b7280; border-bottom:2px solid #d1d5db;">#</th>
+            <th style="padding:6px; font-size:12px; color:#6b7280; border-bottom:2px solid #d1d5db;">Relevancia</th>
+            <th style="padding:6px; font-size:12px; color:#6b7280; border-bottom:2px solid #d1d5db;">Convocatoria</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </section>
+  `;
+}
+
+function buildAiHtmlBody(input: SendWeeklyDigestInput): string {
+  const profileSections = input.profiles
+    .map((p) => buildAiProfileHtml(p, input.aiMap!))
+    .join("");
+
+  return `
+    <div style="font-family:Arial,sans-serif; color:#111827;">
+      <h2 style="margin:0 0 12px 0;">${escapeHtml(getDigestTitleFull())}</h2>
+      <p style="margin:0 0 8px 0;"><strong>Run ID:</strong> ${escapeHtml(input.runId)}</p>
+      <p style="margin:0 0 16px 0;"><strong>Fecha ejecución:</strong> ${escapeHtml(input.runAtIso)}</p>
+      <section style="margin-bottom:24px; padding:16px; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px;">
+        <h3 style="margin:0 0 8px 0; color:#15803d;">🤖 Recomendación IA</h3>
+        <p style="margin:0 0 16px 0; font-size:13px; color:#4b5563;">
+          Análisis automático basado en el perfil de tu empresa. Es una sugerencia orientativa; verifica siempre las condiciones oficiales de cada convocatoria.
+        </p>
+        ${profileSections}
+      </section>
+    </div>
+  `;
+}
+
+/* ---------- HTML: sin IA (formato clásico) ---------- */
+
+function buildClassicHtmlBody(input: SendWeeklyDigestInput): string {
   const sections = input.profiles
     .map((profile) => {
       const items = profile.newItems
@@ -127,6 +265,10 @@ function buildHtmlBody(input: SendWeeklyDigestInput): string {
       ${sections}
     </div>
   `;
+}
+
+function buildHtmlBody(input: SendWeeklyDigestInput): string {
+  return hasAiResults(input) ? buildAiHtmlBody(input) : buildClassicHtmlBody(input);
 }
 
 export async function sendWeeklyDigestEmail(
