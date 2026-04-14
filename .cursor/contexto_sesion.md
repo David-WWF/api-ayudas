@@ -39,9 +39,9 @@ Objetivo: pasar de vigilancia ("hay N nuevas") a recomendación ("estas 3 encaja
 - **Bloque 9 (grant-analyzer):** **completado** — `lib/ai/grant-analyzer.ts` (SDK `openai`, `analyzeGrants`, parser robusto), endpoint `POST /api/ai/analyze-test`, variables `OPENAI_API_KEY` / `AI_MODEL` / `AI_MAX_GRANTS_PER_CALL`.
 - **Bloque 10 (IA en job):** **completado** — en `weekly-runner.ts` lee `company_profile`, llama a `analyzeGrants`, pasa `aiMap` a canales, persiste scoring en `alerts_history`; degradación limpia si falta clave/perfil/error IA.
 - **Bloque 11 (digest enriquecido):** **completado** — sección "Recomendación IA" al inicio del email (tabla HTML ordenada por prioridad + links) y Telegram (lista con emoji, bajas solo contadas, disclaimer).
-- **Bloque 12 (scraping detalle beneficiario):** **pendiente** — scrapear ficha de infosubvenciones.es para extraer tipo de beneficiario elegible, sector económico y región de impacto; enriquecer el prompt de IA con estos datos para que pueda descartar ayudas no elegibles.
+- **Bloque 12 (enriquecimiento elegibilidad):** **pendiente** — la API BDNS (`/convocatorias?numConv=X`) ya devuelve `tiposBeneficiarios`, `sectores`, `regiones`, `descripcionFinalidad` en JSON (no requiere scraping HTML). Enriquecer convocatorias antes de la IA con estos campos para descartar ayudas no elegibles.
 
-Variables de entorno nuevas: `OPENAI_API_KEY`, `AI_MODEL`, `AI_MAX_GRANTS_PER_CALL`, `AI_SCRAPE_DETAIL`.
+Variables de entorno nuevas: `OPENAI_API_KEY`, `AI_MODEL`, `AI_MAX_GRANTS_PER_CALL`, `AI_ENRICH_DETAIL`.
 
 ## Regla de trabajo acordada con el usuario
 

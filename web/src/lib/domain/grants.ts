@@ -11,6 +11,12 @@ export type GrantItem = {
   deadlineDate: string | null;
   amount: number | null;
   sourceUrl: string | null;
+  /** Campos de elegibilidad (opcionales, se rellenan en el paso de enriquecimiento vía API BDNS). */
+  beneficiaryTypes?: string[];
+  sectors?: string[];
+  impactRegions?: string[];
+  purpose?: string | null;
+  instrumentType?: string | null;
 };
 
 export type GrantDetail = {

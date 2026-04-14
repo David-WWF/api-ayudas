@@ -384,7 +384,7 @@ Próxima evolución del producto: en lugar de solo notificar convocatorias nueva
 | 9 | **Módulo grant-analyzer** — `lib/ai/grant-analyzer.ts`; llamada a OpenAI (`gpt-4o-mini`) con contexto de empresa + convocatorias; devuelve relevancia (alta/media/baja) + motivo. | Completado |
 | 10 | **Integrar IA en el job** — en `weekly-runner.ts`, tras detectar novedades y antes del envío; degradación limpia si no hay API key o perfil. | Completado |
 | 11 | **Digest enriquecido** — sección "Recomendación IA" al inicio de email (tabla HTML) y Telegram (lista compacta); ordenado por prioridad; disclaimer de sugerencia. | Completado |
-| 12 | **Scraping de elegibilidad** — extraer tipo de beneficiario, sector económico y región de impacto de la ficha de infosubvenciones.es; enriquecer prompt IA para descartar ayudas no elegibles. | Pendiente |
+| 12 | **Enriquecimiento de elegibilidad** — obtener tipo de beneficiario, sector, región y finalidad vía API BDNS (JSON, sin scraping); enriquecer prompt IA para descartar ayudas no elegibles. | Pendiente |
 
 ### Variables de entorno nuevas (Parte 2)
 
@@ -393,6 +393,6 @@ Próxima evolución del producto: en lugar de solo notificar convocatorias nueva
 | `OPENAI_API_KEY` | Clave de la API de OpenAI (secreto). | — |
 | `AI_MODEL` | Modelo de OpenAI a usar. | `gpt-4o-mini` |
 | `AI_MAX_GRANTS_PER_CALL` | Máximo de convocatorias a analizar por corrida. | `30` |
-| `AI_SCRAPE_DETAIL` | Activar scraping de ficha de detalle antes del análisis IA. | `true` |
+| `AI_ENRICH_DETAIL` | Activar enriquecimiento de convocatorias vía API BDNS antes del análisis IA. | `true` |
 
 > **Principio clave:** si la IA falla o no está configurada, el sistema sigue funcionando exactamente igual que antes (solo se omite la sección de recomendación).

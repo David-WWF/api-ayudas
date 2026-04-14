@@ -38,8 +38,8 @@ todos:
   - id: bloque-11-digest-ia
     content: "Parte 2 — Enriquecer email y Telegram con sección de recomendación IA (relevancia + motivo por convocatoria)."
     status: completed
-  - id: bloque-12-scraping-beneficiario
-    content: "Parte 2 — Scraping de detalle: extraer tipo de beneficiario elegible, sector y región de impacto de cada convocatoria para alimentar el prompt de IA."
+  - id: bloque-12-enriquecimiento-elegibilidad
+    content: "Parte 2 — Enriquecimiento vía API BDNS: obtener tipo de beneficiario, sector, región y finalidad de cada convocatoria y alimentar el prompt de IA."
     status: pending
 isProject: false
 ---
@@ -220,7 +220,7 @@ Tablas mínimas sugeridas (enfoque multi-alerta):
 - Bloque 9: **Completado** (módulo `lib/ai/grant-analyzer.ts`, SDK OpenAI, endpoint de prueba `/api/ai/analyze-test`).
 - Bloque 10: **Completado** (IA integrada en `weekly-runner.ts`: lee `company_profile`, llama a `analyzeGrants`, pasa `aiMap` a canales, persiste scoring en `alerts_history`).
 - Bloque 11: **Completado** (email: sección "Recomendación IA" con tabla HTML ordenada por prioridad + links; Telegram: bloque compacto con emoji + links, bajas solo contadas; disclaimer en ambos).
-- Bloque 12: **Pendiente** (scraping de detalle de convocatoria: tipo beneficiario, sector, región → enriquecer prompt IA).
+- Bloque 12: **Pendiente** (enriquecimiento vía API BDNS: tipo beneficiario, sector, región, finalidad → enriquecer prompt IA; no requiere scraping).
 
 ### Bloque 6 - Hardening para uso interno
 
@@ -296,40 +296,42 @@ Pasar de **vigilancia** ("hay N convocatorias nuevas") a **recomendación** ("de
 - Si no hubo análisis IA la sección no aparece (compatible sin clave).
 - Siempre se presenta como **sugerencia** ("verificar condiciones oficiales").
 
-### Bloque 12 - Scraping de detalle: tipo de beneficiario elegible ⏳
+### Bloque 12 - Enriquecimiento de convocatorias vía API BDNS ⏳
 
-**Qué aprenderás**: web scraping responsable y enriquecimiento de datos para mejorar la calidad de un pipeline de IA.
+**Qué aprenderás**: enriquecer datos en un pipeline antes de pasarlos a IA, y gestionar peticiones concurrentes a una API externa.
 
-**Problema que resuelve**: actualmente la IA solo recibe título, organismo y fecha de cada convocatoria. No sabe si el beneficiario elegible es "personas jurídicas", "autónomos", "entidades locales", etc. Tampoco conoce el sector económico ni la región de impacto. Sin este dato la IA puede recomendar ayudas para las que la empresa no es elegible.
+**Problema que resuelve**: actualmente la IA solo recibe título, organismo y fecha de cada convocatoria. No sabe si el beneficiario elegible es "personas jurídicas", "autónomos", "entidades locales", etc. Tampoco conoce el sector económico ni la región de impacto. Sin estos datos la IA puede recomendar ayudas para las que la empresa no es elegible.
 
-**Fuente de datos**: ficha de detalle en [infosubvenciones.es](https://www.infosubvenciones.es/bdnstrans/GE/es/convocatorias/{id}). Campos objetivo:
+**Descubrimiento clave**: la API BDNS (`/convocatorias?numConv=X&vpd=GE`) ya devuelve **todos** los campos necesarios en JSON. No hace falta scraping de HTML, lo que simplifica el bloque y lo hace más robusto.
 
-| Campo web | Uso en prompt IA |
-|-----------|-----------------|
-| Tipo de beneficiario elegible | Descartar si la empresa no encaja en la categoría (ej. "persona física", "entidad local") |
-| Sector económico del beneficiario | Cruzar con el sector de la empresa |
-| Región de impacto | Cruzar con la ubicación de la empresa |
-| Finalidad (política de gasto) | Contexto adicional para la valoración |
+| Campo API (`/convocatorias?numConv=X`) | Ejemplo | Uso en prompt IA |
+|-----------------------------------------|---------|-----------------|
+| `tiposBeneficiarios[].descripcion` | "PERSONAS JURÍDICAS QUE NO DESARROLLAN ACTIVIDAD ECONÓMICA" | Descartar si la empresa no encaja en la categoría |
+| `sectores[].descripcion` + `codigo` | "INDUSTRIA MANUFACTURERA" (C) | Cruzar con el sector de la empresa |
+| `regiones[].descripcion` | "ES42 - CASTILLA LA MANCHA" | Cruzar con la ubicación de la empresa |
+| `descripcionFinalidad` | "Investigación, desarrollo e innovación" | Contexto adicional para la valoración |
+| `instrumentos[].descripcion` | "SUBVENCIÓN Y ENTREGA DINERARIA…" | Tipo de ayuda |
+| `presupuestoTotal` | 1300000 | Importe total de la convocatoria |
 
 **Pasos técnicos**:
 
-1. **Investigar API BDNS**: comprobar si el JSON de `/convocatorias?numConv=X` ya devuelve estos campos (evitaría scraping). Si no, continuar con scraping HTML.
-2. **Módulo de scraping** (`lib/bdns/scrape-detail.ts`):
-   - `fetchGrantEligibility(grantId)` → `{ beneficiaryType, economicSector, impactRegion, purpose }`.
-   - Parsear HTML de la ficha de infosubvenciones con regex o `cheerio` (ligero).
-   - Timeout + fallback a `null` si la página no responde (no bloquear el pipeline).
-3. **Enriquecer datos antes de la IA** (en `weekly-runner.ts`):
-   - Para cada convocatoria nueva, obtener datos de elegibilidad (en paralelo con concurrencia limitada para no saturar el servidor).
-   - Caché en BD o en memoria para no volver a scrapear convocatorias ya vistas.
+1. **Ampliar tipo `GrantItem`** (`lib/domain/grants.ts`): añadir campos opcionales `beneficiaryTypes`, `sectors`, `impactRegions`, `purpose`, `instrumentType`.
+2. **Función de enriquecimiento** (`lib/bdns/detail.ts`):
+   - `fetchGrantEligibility(grantId)` → campos de elegibilidad extraídos del JSON de la API BDNS.
+   - Timeout + fallback a `null` por campo si la API no responde (no bloquear el pipeline).
+3. **Orquestación en `weekly-runner.ts`**:
+   - Tras detectar novedades y antes de llamar a la IA, enriquecer cada convocatoria nueva llamando a la API de detalle.
+   - Concurrencia limitada (ej. 5 simultáneas) para no saturar la API BDNS.
+   - Si una llamada falla, la convocatoria se envía a la IA sin datos de elegibilidad (degradación parcial).
 4. **Actualizar prompt** (`grant-analyzer.ts`):
-   - Incluir campos de elegibilidad en `buildPrompt()`.
+   - Incluir en `buildPrompt()` los nuevos campos: tipo de beneficiario, sector, región, finalidad.
    - La IA podrá decir "BAJA — beneficiario debe ser persona física, no encaja con empresa" o "ALTA — sector y región coinciden".
-5. **Variable de entorno nueva**: `AI_SCRAPE_DETAIL` (boolean, defecto `true`) para poder desactivar el scraping si genera problemas de rendimiento.
+5. **Variable de entorno**: `AI_ENRICH_DETAIL` (boolean, defecto `true`) para poder desactivar el enriquecimiento.
 
 **Riesgos y mitigación**:
-- **Tasa de peticiones**: hacer peticiones con concurrencia limitada (ej. 3 simultáneas) y un delay entre lotes para no ser bloqueados.
-- **Cambios en el HTML**: el parser debe ser robusto y devolver `null` si no encuentra un campo (la IA sigue funcionando con datos parciales).
-- **Latencia**: scrapear 30 fichas puede tardar 10-20 s; ajustar timeout del job si es necesario.
+- **Tasa de peticiones a BDNS**: concurrencia limitada + timeout individual por petición.
+- **Latencia**: enriquecer 30 convocatorias en paralelo ~3-6 s; asumible dentro del timeout del job.
+- **API caída o lenta**: degradación limpia; la IA sigue funcionando con los datos básicos que ya tenía.
 
 ## Modelo de datos adicional (Parte 2)
 
@@ -341,6 +343,7 @@ Pasar de **vigilancia** ("hay N convocatorias nuevas") a **recomendación** ("de
 - `OPENAI_API_KEY` — clave de API de OpenAI (secreto, no en BD).
 - `AI_MODEL` — modelo a usar (por defecto `gpt-4o-mini`).
 - `AI_MAX_GRANTS_PER_CALL` — máximo de convocatorias a enviar por llamada (por defecto `30`).
+- `AI_ENRICH_DETAIL` — activar enriquecimiento de convocatorias vía API BDNS antes del análisis IA (por defecto `true`).
 
 ## Riesgos y mitigación (Parte 2)
 

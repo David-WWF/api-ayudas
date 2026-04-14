@@ -4,6 +4,7 @@ import { normalizeAlertFilters, type AlertFilters } from "@/lib/domain/alert-fil
 import type { GrantItem } from "@/lib/domain/grants";
 import { searchGrants } from "@/lib/bdns/client";
 import { analyzeGrants, isAiConfigured, type GrantAiResult } from "@/lib/ai/grant-analyzer";
+import { enrichGrantsWithEligibility } from "@/lib/bdns/detail";
 import { sendWeeklyDigestEmail } from "./mailer";
 import { sendWeeklyDigestTelegram } from "./telegram";
 import { ensureNotificationRecipientsTable } from "./notification-recipients";
@@ -316,6 +317,37 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
         });
       }
     }
+    // ── Enriquecimiento de elegibilidad vía API BDNS (opcional) ──────
+    const shouldEnrich = (process.env.AI_ENRICH_DETAIL ?? "true").toLowerCase() !== "false";
+
+    if (digestProfiles.length > 0 && shouldEnrich) {
+      try {
+        const allNewItems = digestProfiles.flatMap((p) => p.newItems);
+        const uniqueById = new Map<string, GrantItem>();
+        for (const item of allNewItems) uniqueById.set(item.id, item);
+        const uniqueItems = [...uniqueById.values()];
+
+        console.info(JSON.stringify({
+          event: "weekly_run_enrich_start",
+          runId,
+          items: uniqueItems.length,
+        }));
+
+        await enrichGrantsWithEligibility(uniqueItems);
+
+        const enrichedCount = uniqueItems.filter((i) => i.beneficiaryTypes && i.beneficiaryTypes.length > 0).length;
+        console.info(JSON.stringify({
+          event: "weekly_run_enrich_done",
+          runId,
+          enriched: enrichedCount,
+          total: uniqueItems.length,
+        }));
+      } catch (enrichError) {
+        const msg = enrichError instanceof Error ? enrichError.message : "Error enriquecimiento";
+        console.error(JSON.stringify({ event: "weekly_run_enrich_error", runId, error: msg }));
+      }
+    }
+
     // ── Análisis IA (opcional, antes del envío) ──────────────────────
     let aiInfo: WeeklyRunResult["aiAnalysis"] = { ran: false };
     const aiMap = new Map<string, GrantAiResult>();

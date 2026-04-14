@@ -48,6 +48,11 @@ function buildPrompt(companyContext: string, grants: GrantItem[]): string {
       if (g.organization) parts.push(`  organismo: ${g.organization}`);
       if (g.publicationDate) parts.push(`  publicación: ${g.publicationDate}`);
       if (g.amount) parts.push(`  importe: ${g.amount} €`);
+      if (g.beneficiaryTypes?.length) parts.push(`  beneficiario elegible: ${g.beneficiaryTypes.join("; ")}`);
+      if (g.sectors?.length) parts.push(`  sector económico: ${g.sectors.join("; ")}`);
+      if (g.impactRegions?.length) parts.push(`  región de impacto: ${g.impactRegions.join("; ")}`);
+      if (g.purpose) parts.push(`  finalidad: ${g.purpose}`);
+      if (g.instrumentType) parts.push(`  instrumento: ${g.instrumentType}`);
       return parts.join("\n");
     })
     .join("\n");
@@ -69,9 +74,11 @@ Devuelve ÚNICAMENTE un JSON válido (sin markdown, sin explicación fuera del J
 ]
 
 CRITERIOS:
-- "alta": la empresa cumple requisitos principales y el objeto encaja con su actividad/intereses.
+- "alta": la empresa cumple requisitos principales (tipo de beneficiario, sector, región) y el objeto encaja con su actividad.
 - "media": podría encajar pero faltan datos o el encaje es parcial.
-- "baja": no encaja con el perfil de la empresa.
+- "baja": no encaja con el perfil de la empresa (tipo de beneficiario incompatible, sector/región distinto, etc.).
+
+IMPORTANTE: si el "beneficiario elegible" no incluye el tipo de entidad de la empresa (ej. la ayuda es solo para personas físicas y la empresa es una sociedad), clasifica como "baja" y explica el motivo.
 
 Responde SOLO con el array JSON.`;
 }
