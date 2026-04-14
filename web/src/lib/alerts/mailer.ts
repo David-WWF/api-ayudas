@@ -167,18 +167,18 @@ function buildAiProfileHtml(profile: DigestProfile, aiMap: Map<string, GrantAiRe
       const label = RELEVANCE_LABEL[relevance] ?? "BAJA";
       const reason = ai?.reason ? escapeHtml(ai.reason) : "";
       const link = item.sourceUrl
-        ? `<a href="${escapeHtml(item.sourceUrl)}" target="_blank" rel="noreferrer" style="color:#2563eb;">Ver ayuda</a>`
+        ? `<a href="${escapeHtml(item.sourceUrl)}" target="_blank" rel="noreferrer" style="color:#60a5fa;">Ver ayuda</a>`
         : "";
 
       return `
         <tr>
-          <td style="padding:8px 6px; vertical-align:top; font-size:14px; border-bottom:1px solid #e5e7eb;">${idx + 1}</td>
-          <td style="padding:8px 6px; vertical-align:top; border-bottom:1px solid #e5e7eb;">
+          <td style="padding:8px 6px; vertical-align:top; font-size:14px; color:#9ca3af; border-bottom:1px solid #2a2d38;">${idx + 1}</td>
+          <td style="padding:8px 6px; vertical-align:top; border-bottom:1px solid #2a2d38;">
             <span style="display:inline-block; padding:2px 8px; border-radius:4px; font-size:12px; font-weight:bold; color:#fff; background:${color};">${emoji} ${label}</span>
           </td>
-          <td style="padding:8px 6px; vertical-align:top; border-bottom:1px solid #e5e7eb;">
-            <strong style="font-size:14px;">${escapeHtml(item.title)}</strong><br/>
-            ${reason ? `<span style="font-size:13px; color:#4b5563;">${reason}</span><br/>` : ""}
+          <td style="padding:8px 6px; vertical-align:top; border-bottom:1px solid #2a2d38;">
+            <strong style="font-size:14px; color:#e5e7eb;">${escapeHtml(item.title)}</strong><br/>
+            ${reason ? `<span style="font-size:13px; color:#9ca3af;">${reason}</span><br/>` : ""}
             ${link}
           </td>
         </tr>
@@ -187,14 +187,14 @@ function buildAiProfileHtml(profile: DigestProfile, aiMap: Map<string, GrantAiRe
     .join("");
 
   return `
-    <section style="margin-bottom:20px;">
-      <h4 style="margin:0 0 8px 0; color:#374151;">${escapeHtml(profile.profileName)} <span style="font-weight:normal; font-size:13px; color:#6b7280;">(${profile.newItems.length} novedades)</span></h4>
+    <section style="margin-bottom:20px; padding:14px; background:#1a1d27; border:1px solid #2a2d38; border-radius:8px;">
+      <h4 style="margin:0 0 8px 0; color:#e5e7eb;">${escapeHtml(profile.profileName)} <span style="font-weight:normal; font-size:13px; color:#6b7280;">(${profile.newItems.length} novedades)</span></h4>
       <table style="width:100%; border-collapse:collapse;">
         <thead>
           <tr style="text-align:left;">
-            <th style="padding:6px; font-size:12px; color:#6b7280; border-bottom:2px solid #d1d5db;">#</th>
-            <th style="padding:6px; font-size:12px; color:#6b7280; border-bottom:2px solid #d1d5db;">Relevancia</th>
-            <th style="padding:6px; font-size:12px; color:#6b7280; border-bottom:2px solid #d1d5db;">Convocatoria</th>
+            <th style="padding:6px; font-size:12px; color:#6b7280; border-bottom:2px solid #363a47;">#</th>
+            <th style="padding:6px; font-size:12px; color:#6b7280; border-bottom:2px solid #363a47;">Relevancia</th>
+            <th style="padding:6px; font-size:12px; color:#6b7280; border-bottom:2px solid #363a47;">Convocatoria</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -209,17 +209,17 @@ function buildAiHtmlBody(input: SendWeeklyDigestInput): string {
     .join("");
 
   return `
-    <div style="font-family:Arial,sans-serif; color:#111827;">
-      <h2 style="margin:0 0 12px 0;">${escapeHtml(getDigestTitleFull())}</h2>
-      <p style="margin:0 0 8px 0;"><strong>Run ID:</strong> ${escapeHtml(input.runId)}</p>
-      <p style="margin:0 0 16px 0;"><strong>Fecha ejecución:</strong> ${escapeHtml(input.runAtIso)}</p>
-      <section style="margin-bottom:24px; padding:16px; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px;">
-        <h3 style="margin:0 0 8px 0; color:#15803d;">🤖 Recomendación IA</h3>
-        <p style="margin:0 0 16px 0; font-size:13px; color:#4b5563;">
+    <div style="font-family:Arial,sans-serif; color:#e5e7eb; background:#111318; padding:24px; border-radius:12px;">
+      <h2 style="margin:0 0 12px 0; color:#e5e7eb;">${escapeHtml(getDigestTitleFull())}</h2>
+      <p style="margin:0 0 8px 0; color:#9ca3af;"><strong style="color:#e5e7eb;">Run ID:</strong> ${escapeHtml(input.runId)}</p>
+      <p style="margin:0 0 16px 0; color:#9ca3af;"><strong style="color:#e5e7eb;">Fecha ejecución:</strong> ${escapeHtml(input.runAtIso)}</p>
+      <section style="margin-bottom:16px; padding:16px; background:#142a1b; border:1px solid #22c55e; border-radius:8px;">
+        <h3 style="margin:0 0 8px 0; color:#86efac;">🤖 Recomendación IA</h3>
+        <p style="margin:0; font-size:13px; color:#9ca3af;">
           Análisis automático basado en el perfil de tu empresa. Es una sugerencia orientativa; verifica siempre las condiciones oficiales de cada convocatoria.
         </p>
-        ${profileSections}
       </section>
+      ${profileSections}
     </div>
   `;
 }
@@ -232,15 +232,15 @@ function buildClassicHtmlBody(input: SendWeeklyDigestInput): string {
       const items = profile.newItems
         .map((item) => {
           const sourceLink = item.sourceUrl
-            ? `<a href="${escapeHtml(item.sourceUrl)}" target="_blank" rel="noreferrer">Ver convocatoria</a>`
-            : "Sin enlace oficial";
+            ? `<a href="${escapeHtml(item.sourceUrl)}" target="_blank" rel="noreferrer" style="color:#5eead4;">Ver convocatoria</a>`
+            : `<span style="color:#4b5563;">Sin enlace oficial</span>`;
 
           return `
             <li style="margin-bottom:10px;">
-              <strong>${escapeHtml(item.title)}</strong><br/>
-              ID: ${escapeHtml(item.id)}<br/>
-              Organismo: ${escapeHtml(item.organization ?? "No informado")}<br/>
-              Publicación: ${escapeHtml(item.publicationDate ?? "No informada")}<br/>
+              <strong style="color:#e5e7eb;">${escapeHtml(item.title)}</strong><br/>
+              <span style="color:#9ca3af;">ID: ${escapeHtml(item.id)}</span><br/>
+              <span style="color:#9ca3af;">Organismo: ${escapeHtml(item.organization ?? "No informado")}</span><br/>
+              <span style="color:#9ca3af;">Publicación: ${escapeHtml(item.publicationDate ?? "No informada")}</span><br/>
               ${sourceLink}
             </li>
           `;
@@ -248,20 +248,20 @@ function buildClassicHtmlBody(input: SendWeeklyDigestInput): string {
         .join("");
 
       return `
-        <section style="margin-bottom:16px;">
-          <h3 style="margin:0 0 8px 0;">${escapeHtml(profile.profileName)} (ID ${profile.profileId})</h3>
-          <p style="margin:0 0 8px 0;">Novedades: ${profile.newItems.length}</p>
-          <ul style="margin:0; padding-left:18px;">${items}</ul>
+        <section style="margin-bottom:16px; padding:14px; background:#1a1d27; border:1px solid #2a2d38; border-radius:8px;">
+          <h3 style="margin:0 0 8px 0; color:#e5e7eb;">${escapeHtml(profile.profileName)} <span style="font-weight:normal; font-size:13px; color:#6b7280;">(ID ${profile.profileId})</span></h3>
+          <p style="margin:0 0 8px 0; color:#9ca3af;">Novedades: ${profile.newItems.length}</p>
+          <ul style="margin:0; padding-left:18px; color:#9ca3af;">${items}</ul>
         </section>
       `;
     })
     .join("");
 
   return `
-    <div style="font-family:Arial,sans-serif; color:#111827;">
-      <h2 style="margin:0 0 12px 0;">${escapeHtml(getDigestTitleFull())}</h2>
-      <p style="margin:0 0 8px 0;"><strong>Run ID:</strong> ${escapeHtml(input.runId)}</p>
-      <p style="margin:0 0 16px 0;"><strong>Fecha ejecución:</strong> ${escapeHtml(input.runAtIso)}</p>
+    <div style="font-family:Arial,sans-serif; color:#e5e7eb; background:#111318; padding:24px; border-radius:12px;">
+      <h2 style="margin:0 0 12px 0; color:#e5e7eb;">${escapeHtml(getDigestTitleFull())}</h2>
+      <p style="margin:0 0 8px 0; color:#9ca3af;"><strong style="color:#e5e7eb;">Run ID:</strong> ${escapeHtml(input.runId)}</p>
+      <p style="margin:0 0 16px 0; color:#9ca3af;"><strong style="color:#e5e7eb;">Fecha ejecución:</strong> ${escapeHtml(input.runAtIso)}</p>
       ${sections}
     </div>
   `;

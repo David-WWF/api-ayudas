@@ -115,25 +115,27 @@ function buildAiTelegramBlocks(input: SendWeeklyDigestInput): string[] {
 
     const shown = sorted.slice(0, MAX_ITEMS_PER_PROFILE);
     const lines: string[] = [];
-    lines.push(`📋 ${profile.profileName} (${profile.newItems.length} novedades)`);
-    lines.push("");
+    lines.push(`━━━━━━━━━━━━━━━━━━━━`);
+    lines.push(`📋  ${profile.profileName}`);
+    lines.push(`     ${profile.newItems.length} novedades`);
+    lines.push(``);
 
     shown.forEach(({ item, ai }, idx) => {
       const relevance = ai?.relevance ?? "baja";
       const emoji = RELEVANCE_EMOJI[relevance] ?? "🔴";
       const label = RELEVANCE_LABEL[relevance] ?? "BAJA";
-      lines.push(`${idx + 1}. ${emoji} [${label}] ${truncate(item.title, 120)}`);
-      if (ai?.reason) lines.push(`   ${truncate(ai.reason, 150)}`);
-      if (item.sourceUrl) lines.push(`   ${item.sourceUrl}`);
-      lines.push("");
+      lines.push(`  ${idx + 1}.  ${emoji} ${label}`);
+      lines.push(`       ${truncate(item.title, 120)}`);
+      if (ai?.reason) lines.push(`       💬 ${truncate(ai.reason, 150)}`);
+      if (item.sourceUrl) lines.push(`       🔗 ${item.sourceUrl}`);
+      lines.push(``);
     });
 
     if (profile.newItems.length > shown.length) {
-      lines.push(`... y ${profile.newItems.length - shown.length} más (ver email).`);
-      lines.push("");
+      lines.push(`  ... y ${profile.newItems.length - shown.length} más (ver email)`);
+      lines.push(``);
     }
 
-    lines.push("--------------------------------------------------");
     blocks.push(lines.join("\n"));
   }
 
@@ -147,28 +149,26 @@ function buildClassicTelegramBlocks(input: SendWeeklyDigestInput): string[] {
 
   for (const profile of input.profiles) {
     const lines: string[] = [];
-    lines.push(`[Perfil] ${profile.profileName} (ID ${profile.profileId})`);
-    lines.push(`[Novedades] ${profile.newItems.length}`);
-    lines.push("");
+    lines.push(`━━━━━━━━━━━━━━━━━━━━`);
+    lines.push(`📋  ${profile.profileName}`);
+    lines.push(`     ${profile.newItems.length} novedades`);
+    lines.push(``);
 
     const shown = profile.newItems.slice(0, MAX_ITEMS_PER_PROFILE);
 
     shown.forEach((item, index) => {
-      lines.push(`${index + 1}) ${truncate(item.title, 140)}`);
-      lines.push(`   - ID: ${item.id}`);
-      lines.push(`   - Organismo: ${truncate(item.organization ?? "No informado", 80)}`);
-      lines.push(`   - Fecha: ${item.publicationDate ?? "No informada"}`);
-      lines.push(`   - URL: ${item.sourceUrl ?? "Sin enlace"}`);
-      lines.push("");
+      lines.push(`  ${index + 1}.  ${truncate(item.title, 140)}`);
+      if (item.organization) lines.push(`       🏛 ${truncate(item.organization, 80)}`);
+      if (item.publicationDate) lines.push(`       📅 ${item.publicationDate}`);
+      if (item.sourceUrl) lines.push(`       🔗 ${item.sourceUrl}`);
+      lines.push(``);
     });
 
     if (profile.newItems.length > shown.length) {
-      lines.push(
-        `... y ${profile.newItems.length - shown.length} mas (ver email para detalle completo).`
-      );
+      lines.push(`  ... y ${profile.newItems.length - shown.length} más (ver email)`);
+      lines.push(``);
     }
 
-    lines.push("--------------------------------------------------");
     blocks.push(lines.join("\n"));
   }
 
@@ -180,18 +180,18 @@ function buildTelegramMessages(input: SendWeeklyDigestInput): string[] {
   const useAi = hasAiResults(input);
 
   const headerLines = [
-    getDigestTelegramBanner(),
-    `Run ID: ${input.runId}`,
-    `Fecha: ${input.runAtIso}`,
-    `Perfiles con novedades: ${input.profiles.length}`,
-    `Total nuevas convocatorias: ${totalNew}`,
+    `📢  ${getDigestTelegramBanner()}`,
+    ``,
+    `📅  ${input.runAtIso}`,
+    `📊  ${input.profiles.length} perfiles  ·  ${totalNew} convocatorias nuevas`,
+    `🆔  ${input.runId}`,
   ];
 
   if (useAi) {
-    headerLines.push("");
-    headerLines.push("🤖 RECOMENDACIÓN IA");
-    headerLines.push("Sugerencia automática según perfil de empresa.");
-    headerLines.push("⚠️ Verificar condiciones oficiales.");
+    headerLines.push(``);
+    headerLines.push(`🤖  RECOMENDACIÓN IA`);
+    headerLines.push(`Sugerencia según perfil de empresa.`);
+    headerLines.push(`⚠️  Verificar siempre condiciones oficiales.`);
   }
 
   const header = headerLines.join("\n");
