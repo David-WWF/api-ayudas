@@ -1172,6 +1172,7 @@ export default function Home() {
                   <div className={`${styles.actions} ${styles.modalActions}`}>
                     <button
                       type="button"
+                      className={styles.saveCompanyButton}
                       disabled={companyContextSaving || companyContext === companyContextSaved}
                       onClick={() => void saveCompanyProfile()}
                     >
@@ -1184,14 +1185,7 @@ export default function Home() {
                 </>
               )}
 
-              <h3 className={styles.modalSectionTitle}>Destinatarios del resumen</h3>
-
-              <p className={styles.modalHint}>
-                Los envíos usan el bot y SMTP configurados en el servidor. Aquí defines{" "}
-                <strong>a quién</strong> llegan los resúmenes (varios correos y varios chats).
-                Si no hay filas activas en la base de datos, se usan{" "}
-                <code>ALERT_RECIPIENTS</code> y <code>TELEGRAM_CHAT_ID</code> del entorno.
-              </p>
+              <hr className={styles.sectionDivider} />
 
               <h3 className={styles.modalSectionTitle}>Destinatarios del resumen</h3>
 
@@ -1222,6 +1216,7 @@ export default function Home() {
                 />
                 <button
                   type="button"
+                  className={styles.addRecipientButton}
                   disabled={recipientSaving}
                   onClick={() => void createRecipient()}
                 >
@@ -1259,6 +1254,7 @@ export default function Home() {
                     <div className={styles.profileActions}>
                       <button
                         type="button"
+                        className={r.enabled ? styles.warningButton : styles.successButton}
                         disabled={recipientBusyId === r.id}
                         onClick={() => void toggleRecipientEnabled(r)}
                       >
@@ -1276,6 +1272,8 @@ export default function Home() {
                   </li>
                 ))}
               </ul>
+
+              <hr className={styles.sectionDivider} />
 
               <h3 className={styles.modalSectionTitle}>Perfiles de búsqueda (alertas)</h3>
 
@@ -1336,6 +1334,7 @@ export default function Home() {
               <div className={`${styles.actions} ${styles.modalActions}`}>
                 <button
                   type="button"
+                  className={styles.saveCompanyButton}
                   onClick={() => void createProfile()}
                   disabled={profilesSaving}
                 >
@@ -1344,6 +1343,8 @@ export default function Home() {
               </div>
 
               {profilesError ? <p className={styles.error}>Error: {profilesError}</p> : null}
+
+              <hr className={styles.sectionDivider} />
 
               <h3 className={styles.modalSectionTitle}>Perfiles existentes</h3>
               {profilesLoading ? <p>Cargando...</p> : null}
@@ -1379,6 +1380,7 @@ export default function Home() {
                     <div className={styles.profileActions}>
                       <button
                         type="button"
+                        className={p.enabled ? styles.warningButton : styles.successButton}
                         disabled={profileBusyId === p.id}
                         onClick={() => void toggleProfileEnabled(p)}
                       >
@@ -1387,6 +1389,7 @@ export default function Home() {
 
                       <button
                         type="button"
+                        className={styles.primaryButton}
                         disabled={profileBusyId === p.id}
                         onClick={() => void saveProfileName(p)}
                       >

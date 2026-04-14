@@ -1,7 +1,7 @@
 .page {
   min-height: 100vh;
-  background: #f5f7fb;
-  color: #111827;
+  background: #111318;
+  color: #e5e7eb;
   display: flex;
   justify-content: center;
   padding: 32px 16px;
@@ -11,11 +11,11 @@
 .main {
   width: 100%;
   max-width: 920px;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
+  background: #1a1d27;
+  border: 1px solid #2a2d38;
   border-radius: 14px;
   padding: 24px;
-  box-shadow: 0 8px 30px rgba(17, 24, 39, 0.06);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
 }
 
 .header h1 {
@@ -25,7 +25,7 @@
 
 .header p {
   margin: 0 0 18px;
-  color: #4b5563;
+  color: #9ca3af;
 }
 
 .searchForm {
@@ -54,28 +54,29 @@
 
 .field label {
   font-size: 13px;
-  color: #374151;
+  color: #9ca3af;
   font-weight: 600;
 }
 
 .field input,
 .field select {
   height: 42px;
-  border: 1px solid #d1d5db;
+  border: 1px solid #363a47;
   border-radius: 10px;
   padding: 0 12px;
   font-size: 15px;
-  background: #ffffff;
-  color: #111827;
+  background: #161821;
+  color: #e5e7eb;
 }
 
 .field input[type="date"] {
-  color-scheme: light;
+  color-scheme: dark;
 }
 
 .field input[type="date"]::-webkit-calendar-picker-indicator {
   opacity: 1;
   cursor: pointer;
+  filter: invert(0.8);
 }
 
 .actions {
@@ -98,8 +99,12 @@
 
 .searchForm button {
   border: none;
-  background: #111827;
+  background: #3b82f6;
   color: #ffffff;
+}
+
+.searchForm button:hover:not(:disabled) {
+  background: #2563eb;
 }
 
 .searchForm button:disabled {
@@ -108,15 +113,19 @@
 }
 
 .secondaryButton {
-  border: 1px solid #d1d5db !important;
-  background: #ffffff !important;
-  color: #111827 !important;
+  border: 1px solid #363a47 !important;
+  background: #1f2230 !important;
+  color: #e5e7eb !important;
+}
+
+.secondaryButton:hover:not(:disabled) {
+  background: #282b36 !important;
 }
 
 .profileMessage {
   margin-top: 6px;
   font-size: 14px;
-  color: #065f46;
+  color: #6ee7b7;
 }
 
 .meta {
@@ -130,16 +139,16 @@
 
 .error {
   margin: 10px 0;
-  color: #b91c1c;
-  background: #fee2e2;
-  border: 1px solid #fecaca;
+  color: #fca5a5;
+  background: #3b1219;
+  border: 1px solid #7f1d1d;
   padding: 10px 12px;
   border-radius: 10px;
 }
 
 .empty {
   margin: 14px 0;
-  color: #374151;
+  color: #9ca3af;
 }
 
 .list {
@@ -151,10 +160,10 @@
 }
 
 .card {
-  border: 1px solid #e5e7eb;
+  border: 1px solid #2a2d38;
   border-radius: 12px;
   padding: 14px;
-  background: #ffffff;
+  background: #1f2230;
 }
 
 .card h2 {
@@ -165,13 +174,13 @@
 
 .card p {
   margin: 6px 0;
-  color: #374151;
+  color: #9ca3af;
 }
 
 .card a {
   display: inline-block;
   margin-top: 8px;
-  color: #0f766e;
+  color: #5eead4;
   text-decoration: none;
   font-weight: 600;
 }
@@ -185,9 +194,9 @@
 }
 
 .detailButton {
-  border: 1px solid #d1d5db;
-  background: #ffffff;
-  color: #111827;
+  border: 1px solid #363a47;
+  background: #1f2230;
+  color: #e5e7eb;
   border-radius: 8px;
   padding: 8px 10px;
   cursor: pointer;
@@ -195,13 +204,13 @@
 }
 
 .detailButton:hover {
-  background: #f9fafb;
+  background: #282b36;
 }
 
 .noLink {
   display: inline-block;
   margin-top: 8px;
-  color: #9ca3af;
+  color: #4b5563;
 }
 
 .pagination {
@@ -212,12 +221,16 @@
 
 .pagination button {
   height: 40px;
-  border: 1px solid #d1d5db;
+  border: 1px solid #363a47;
   border-radius: 10px;
-  background: #ffffff;
-  color: #111827;
+  background: #1f2230;
+  color: #e5e7eb;
   padding: 0 12px;
   cursor: pointer;
+}
+
+.pagination button:hover:not(:disabled) {
+  background: #282b36;
 }
 
 .pagination button:disabled {
@@ -228,7 +241,7 @@
 .modalOverlay {
   position: fixed;
   inset: 0;
-  background: rgba(17, 24, 39, 0.45);
+  background: rgba(0, 0, 0, 0.7);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -241,9 +254,9 @@
   max-width: 760px;
   max-height: 85vh;
   overflow: auto;
-  background: #ffffff;
+  background: #1a1d27;
   border-radius: 12px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #2a2d38;
   padding: 18px;
   position: relative;
 }
@@ -254,19 +267,29 @@
   right: 10px;
   width: 34px;
   height: 34px;
-  border: 1px solid #d1d5db;
+  border: 1px solid #363a47;
   border-radius: 8px;
-  background: #ffffff;
-  color: #111827;
+  background: #1f2230;
+  color: #e5e7eb;
   cursor: pointer;
   font-size: 20px;
   line-height: 1;
+}
+
+.modalClose:hover {
+  background: #282b36;
 }
 
 .modalTitle {
   margin: 0 40px 10px 0;
   font-size: 22px;
   line-height: 1.3;
+}
+
+.sectionDivider {
+  border: none;
+  border-top: 1px solid #2a2d38;
+  margin: 20px 0;
 }
 
 .modalSectionTitle {
@@ -277,13 +300,13 @@
 .modalHint {
   margin: 0 0 12px;
   font-size: 14px;
-  color: #4b5563;
+  color: #6b7280;
   line-height: 1.5;
 }
 
 .modalHint code {
   font-size: 13px;
-  background: #f3f4f6;
+  background: #262935;
   padding: 2px 6px;
   border-radius: 4px;
 }
@@ -294,18 +317,20 @@
   font-size: 14px;
   font-family: inherit;
   line-height: 1.5;
-  border: 1px solid #d1d5db;
+  border: 1px solid #363a47;
   border-radius: 8px;
   resize: vertical;
   min-height: 80px;
   margin-bottom: 4px;
   box-sizing: border-box;
+  background: #161821;
+  color: #e5e7eb;
 }
 
 .companyProfileTextarea:focus {
   outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.25);
 }
 
 .recipientFormRow {
@@ -319,11 +344,11 @@
 .recipientFormRow select,
 .recipientFormRow input {
   height: 40px;
-  border: 1px solid #d1d5db;
+  border: 1px solid #363a47;
   border-radius: 10px;
   padding: 0 10px;
-  background: #fff;
-  color: #111827;
+  background: #161821;
+  color: #e5e7eb;
 }
 
 .recipientLabel {
@@ -332,7 +357,7 @@
 }
 
 .modalDescription {
-  color: #374151;
+  color: #9ca3af;
   line-height: 1.6;
   white-space: pre-wrap;
 }
@@ -340,7 +365,7 @@
 .modalExternalLink {
   display: inline-block;
   margin-top: 12px;
-  color: #0f766e;
+  color: #5eead4;
   font-weight: 600;
   text-decoration: none;
 }
@@ -389,11 +414,11 @@
 .profileFormGrid input,
 .profileFormGrid select {
   height: 40px;
-  border: 1px solid #d1d5db;
+  border: 1px solid #363a47;
   border-radius: 10px;
   padding: 0 10px;
-  background: #fff;
-  color: #111827;
+  background: #161821;
+  color: #e5e7eb;
 }
 
 .profileList {
@@ -405,15 +430,15 @@
 }
 
 .profileCard {
-  border: 1px solid #e5e7eb;
+  border: 1px solid #2a2d38;
   border-radius: 10px;
   padding: 10px;
-  background: #fff;
+  background: #1f2230;
 }
 
 .profileCard p {
   margin: 6px 0;
-  color: #374151;
+  color: #9ca3af;
 }
 
 @media (max-width: 700px) {
@@ -439,18 +464,18 @@
   padding: 0 16px;
   border: none;
   border-radius: 12px;
-  background: linear-gradient(135deg, #2563eb, #0f766e);
+  background: linear-gradient(135deg, #3b82f6, #14b8a6);
   color: #ffffff;
   font-size: 15px;
   font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.28);
+  box-shadow: 0 8px 18px rgba(59, 130, 246, 0.3);
   transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
 }
 
 .manageAlertsButton:hover {
   transform: translateY(-1px);
-  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.32);
+  box-shadow: 0 10px 22px rgba(59, 130, 246, 0.4);
 }
 
 .manageAlertsButton:active {
@@ -458,7 +483,7 @@
 }
 
 .manageAlertsButton:focus-visible {
-  outline: 3px solid #93c5fd;
+  outline: 3px solid #60a5fa;
   outline-offset: 2px;
 }
 
@@ -471,12 +496,12 @@
 .profileNameInput {
   width: 100%;
   height: 38px;
-  border: 1px solid #d1d5db;
+  border: 1px solid #363a47;
   border-radius: 8px;
   padding: 0 10px;
   font-size: 14px;
-  background: #fff;
-  color: #111827;
+  background: #161821;
+  color: #e5e7eb;
 }
 
 .profileActions {
@@ -487,12 +512,16 @@
 
 .profileActions button {
   height: 34px;
-  border: 1px solid #d1d5db;
+  border: 1px solid #363a47;
   border-radius: 8px;
-  background: #fff;
-  color: #111827;
+  background: #1f2230;
+  color: #e5e7eb;
   padding: 0 10px;
   cursor: pointer;
+}
+
+.profileActions button:hover:not(:disabled) {
+  background: #282b36;
 }
 
 .profileActions button:disabled {
@@ -502,5 +531,91 @@
 
 .dangerButton {
   border-color: #ef4444 !important;
-  color: #b91c1c !important;
+  background: #3b1219 !important;
+  color: #fca5a5 !important;
+}
+
+.dangerButton:hover:not(:disabled) {
+  background: #4c1a22 !important;
+}
+
+.successButton {
+  border-color: #22c55e !important;
+  background: #142a1b !important;
+  color: #86efac !important;
+}
+
+.successButton:hover:not(:disabled) {
+  background: #1a3824 !important;
+}
+
+.warningButton {
+  border-color: #f59e0b !important;
+  background: #2d1f0e !important;
+  color: #fcd34d !important;
+}
+
+.warningButton:hover:not(:disabled) {
+  background: #3d2a12 !important;
+}
+
+.mutedButton {
+  border-color: #4b5563 !important;
+  background: #1f2937 !important;
+  color: #9ca3af !important;
+}
+
+.mutedButton:hover:not(:disabled) {
+  background: #283544 !important;
+}
+
+.primaryButton {
+  border-color: #3b82f6 !important;
+  background: #172040 !important;
+  color: #93c5fd !important;
+}
+
+.primaryButton:hover:not(:disabled) {
+  background: #1e2a52 !important;
+}
+
+.saveCompanyButton {
+  border: none !important;
+  background: #16a34a !important;
+  color: #ffffff !important;
+  font-weight: 600;
+}
+
+.saveCompanyButton:hover:not(:disabled) {
+  background: #15803d !important;
+}
+
+.saveCompanyButton:disabled {
+  background: #1a5c30 !important;
+  color: #ffffff !important;
+  cursor: not-allowed;
+}
+
+.addRecipientButton {
+  height: 40px;
+  border: none;
+  border-radius: 20px;
+  background: #3b82f6;
+  color: #ffffff;
+  padding: 0 18px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.addRecipientButton:hover:not(:disabled) {
+  background: #2563eb;
+  transform: translateY(-1px);
+}
+
+.addRecipientButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

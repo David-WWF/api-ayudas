@@ -40,7 +40,7 @@ todos:
     status: completed
   - id: bloque-12-enriquecimiento-elegibilidad
     content: "Parte 2 — Enriquecimiento vía API BDNS: obtener tipo de beneficiario, sector, región y finalidad de cada convocatoria y alimentar el prompt de IA."
-    status: pending
+    status: completed
 isProject: false
 ---
 
@@ -220,7 +220,7 @@ Tablas mínimas sugeridas (enfoque multi-alerta):
 - Bloque 9: **Completado** (módulo `lib/ai/grant-analyzer.ts`, SDK OpenAI, endpoint de prueba `/api/ai/analyze-test`).
 - Bloque 10: **Completado** (IA integrada en `weekly-runner.ts`: lee `company_profile`, llama a `analyzeGrants`, pasa `aiMap` a canales, persiste scoring en `alerts_history`).
 - Bloque 11: **Completado** (email: sección "Recomendación IA" con tabla HTML ordenada por prioridad + links; Telegram: bloque compacto con emoji + links, bajas solo contadas; disclaimer en ambos).
-- Bloque 12: **Pendiente** (enriquecimiento vía API BDNS: tipo beneficiario, sector, región, finalidad → enriquecer prompt IA; no requiere scraping).
+- Bloque 12: **Completado** (enriquecimiento vía API BDNS: tipo beneficiario, sector, región, finalidad → enriquecer prompt IA; no requiere scraping).
 
 ### Bloque 6 - Hardening para uso interno
 
@@ -296,7 +296,7 @@ Pasar de **vigilancia** ("hay N convocatorias nuevas") a **recomendación** ("de
 - Si no hubo análisis IA la sección no aparece (compatible sin clave).
 - Siempre se presenta como **sugerencia** ("verificar condiciones oficiales").
 
-### Bloque 12 - Enriquecimiento de convocatorias vía API BDNS ⏳
+### Bloque 12 - Enriquecimiento de convocatorias vía API BDNS ✔
 
 **Qué aprenderás**: enriquecer datos en un pipeline antes de pasarlos a IA, y gestionar peticiones concurrentes a una API externa.
 

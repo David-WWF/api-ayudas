@@ -384,7 +384,7 @@ Próxima evolución del producto: en lugar de solo notificar convocatorias nueva
 | 9 | **Módulo grant-analyzer** — `lib/ai/grant-analyzer.ts`; llamada a OpenAI (`gpt-4o-mini`) con contexto de empresa + convocatorias; devuelve relevancia (alta/media/baja) + motivo. | Completado |
 | 10 | **Integrar IA en el job** — en `weekly-runner.ts`, tras detectar novedades y antes del envío; degradación limpia si no hay API key o perfil. | Completado |
 | 11 | **Digest enriquecido** — sección "Recomendación IA" al inicio de email (tabla HTML) y Telegram (lista compacta); ordenado por prioridad; disclaimer de sugerencia. | Completado |
-| 12 | **Enriquecimiento de elegibilidad** — obtener tipo de beneficiario, sector, región y finalidad vía API BDNS (JSON, sin scraping); enriquecer prompt IA para descartar ayudas no elegibles. | Pendiente |
+| 12 | **Enriquecimiento de elegibilidad** — obtener tipo de beneficiario, sector, región y finalidad vía API BDNS (JSON, sin scraping); enriquecer prompt IA para descartar ayudas no elegibles. | Completado |
 
 ### Variables de entorno nuevas (Parte 2)
 

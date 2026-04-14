@@ -39,9 +39,22 @@ Objetivo: pasar de vigilancia ("hay N nuevas") a recomendación ("estas 3 encaja
 - **Bloque 9 (grant-analyzer):** **completado** — `lib/ai/grant-analyzer.ts` (SDK `openai`, `analyzeGrants`, parser robusto), endpoint `POST /api/ai/analyze-test`, variables `OPENAI_API_KEY` / `AI_MODEL` / `AI_MAX_GRANTS_PER_CALL`.
 - **Bloque 10 (IA en job):** **completado** — en `weekly-runner.ts` lee `company_profile`, llama a `analyzeGrants`, pasa `aiMap` a canales, persiste scoring en `alerts_history`; degradación limpia si falta clave/perfil/error IA.
 - **Bloque 11 (digest enriquecido):** **completado** — sección "Recomendación IA" al inicio del email (tabla HTML ordenada por prioridad + links) y Telegram (lista con emoji, bajas solo contadas, disclaimer).
-- **Bloque 12 (enriquecimiento elegibilidad):** **pendiente** — la API BDNS (`/convocatorias?numConv=X`) ya devuelve `tiposBeneficiarios`, `sectores`, `regiones`, `descripcionFinalidad` en JSON (no requiere scraping HTML). Enriquecer convocatorias antes de la IA con estos campos para descartar ayudas no elegibles.
+- **Bloque 12 (enriquecimiento elegibilidad):** **completado** — la API BDNS (`/convocatorias?numConv=X`) devuelve `tiposBeneficiarios`, `sectores`, `regiones`, `descripcionFinalidad` en JSON (sin scraping). `fetchGrantEligibility()` + `enrichGrantsWithEligibility()` en `detail.ts`; orquestación con concurrencia limitada (5) en `weekly-runner.ts` antes del análisis IA; prompt actualizado con criterios de elegibilidad; variable `AI_ENRICH_DETAIL`.
 
 Variables de entorno nuevas: `OPENAI_API_KEY`, `AI_MODEL`, `AI_MAX_GRANTS_PER_CALL`, `AI_ENRICH_DETAIL`.
+
+## UI — Dark mode (implementado en sesion 2026-04-14)
+
+La interfaz usa **modo oscuro permanente** (no toggle). Paleta gris-azulada:
+
+- Fondo pagina `#111318`, superficie principal `#1a1d27`, tarjetas `#1f2230`, inputs `#161821`.
+- Texto primario `#e5e7eb`, secundario `#9ca3af`, muted `#6b7280`.
+- Bordes `#2a2d38` (suave) / `#363a47` (medio).
+- Links teal `#5eead4`, accent azul `#60a5fa`.
+- Botones de accion: danger rojo oscuro, success verde oscuro, warning ambar oscuro, muted gris, primary azul oscuro; save company verde solido, add/search azul solido.
+- Detalle completo en `.cursor/plans/dark_mode_ui_1f7b51a0.plan.md`.
+
+Archivos CSS afectados: `web/src/app/globals.css`, `web/src/app/page.module.css`.
 
 ## Regla de trabajo acordada con el usuario
 
