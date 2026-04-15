@@ -441,6 +441,13 @@
   color: #9ca3af;
 }
 
+.profileCardTitle {
+  margin: 0 0 4px 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #e5e7eb;
+}
+
 @media (max-width: 700px) {
   .profileFormGrid {
     grid-template-columns: 1fr;

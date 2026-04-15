@@ -150,6 +150,7 @@ export default function Home() {
   const [profilesError, setProfilesError] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<AlertProfile[]>([]);
   const [profileBusyId, setProfileBusyId] = useState<number | null>(null);
+  const [editingProfileId, setEditingProfileId] = useState<number | null>(null);
 
   const [recipientsLoading, setRecipientsLoading] = useState(false);
   const [recipientsError, setRecipientsError] = useState<string | null>(null);
@@ -643,7 +644,7 @@ export default function Home() {
     }
   }
 
-  async function saveProfileName(profile: AlertProfile) {
+  async function saveProfileFull(profile: AlertProfile) {
     const trimmedName = profile.name.trim();
     if (!trimmedName) {
       setProfilesError("El nombre del perfil no puede estar vacío.");
@@ -672,12 +673,13 @@ export default function Home() {
 
       const json = (await res.json()) as { ok: boolean; error?: string };
       if (!res.ok || !json.ok) {
-        throw new Error(json.error ?? "No se pudo guardar el nombre");
+        throw new Error(json.error ?? "No se pudo guardar el perfil");
       }
 
+      setEditingProfileId(null);
       await loadProfiles();
     } catch (err) {
-      setProfilesError(err instanceof Error ? err.message : "Error guardando nombre");
+      setProfilesError(err instanceof Error ? err.message : "Error guardando perfil");
     } finally {
       setProfileBusyId(null);
     }
@@ -1356,55 +1358,181 @@ export default function Home() {
               <ul className={styles.profileList}>
                 {profiles.map((p) => (
                   <li key={p.id} className={styles.profileCard}>
-                    <input
-                      className={styles.profileNameInput}
-                      value={p.name}
-                      disabled={profileBusyId === p.id}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setProfiles((prev) =>
-                          prev.map((item) => (item.id === p.id ? { ...item, name: value } : item))
-                        );
-                      }}
-                    />
-
-                    <p>
-                      Estado: {p.enabled ? "Activo" : "Inactivo"} | Texto:{" "}
-                      {p.filters.searchText || "(vacío)"} | Admin:{" "}
-                      {p.filters.tipoAdministracion ?? "todas"} | Región:{" "}
-                      {typeof p.filters.regionId === "number"
-                        ? (regionsById.get(p.filters.regionId) ?? p.filters.regionId)
-                        : "todas"}
-                    </p>
-
-                    <div className={styles.profileActions}>
-                      <button
-                        type="button"
-                        className={p.enabled ? styles.warningButton : styles.successButton}
-                        disabled={profileBusyId === p.id}
-                        onClick={() => void toggleProfileEnabled(p)}
-                      >
-                        {p.enabled ? "Desactivar" : "Activar"}
-                      </button>
-
-                      <button
-                        type="button"
-                        className={styles.primaryButton}
-                        disabled={profileBusyId === p.id}
-                        onClick={() => void saveProfileName(p)}
-                      >
-                        Guardar nombre
-                      </button>
-
-                      <button
-                        type="button"
-                        className={styles.dangerButton}
-                        disabled={profileBusyId === p.id}
-                        onClick={() => void deleteProfile(p.id)}
-                      >
-                        Eliminar
-                      </button>
-                    </div>
+                    {editingProfileId === p.id ? (
+                      <>
+                        <div className={styles.profileFormGrid}>
+                          <input
+                            placeholder="Nombre del perfil"
+                            value={p.name}
+                            disabled={profileBusyId === p.id}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setProfiles((prev) =>
+                                prev.map((item) =>
+                                  item.id === p.id ? { ...item, name: value } : item
+                                )
+                              );
+                            }}
+                          />
+                          <input
+                            placeholder="Texto (ej. innovación)"
+                            value={p.filters.searchText}
+                            disabled={profileBusyId === p.id}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setProfiles((prev) =>
+                                prev.map((item) =>
+                                  item.id === p.id
+                                    ? { ...item, filters: { ...item.filters, searchText: value } }
+                                    : item
+                                )
+                              );
+                            }}
+                          />
+                          <select
+                            value={p.filters.tipoAdministracion ?? ""}
+                            disabled={profileBusyId === p.id}
+                            onChange={(e) => {
+                              const value = e.target.value || null;
+                              setProfiles((prev) =>
+                                prev.map((item) =>
+                                  item.id === p.id
+                                    ? {
+                                        ...item,
+                                        filters: {
+                                          ...item.filters,
+                                          tipoAdministracion: value as AlertFilters["tipoAdministracion"],
+                                          regionId: value !== "A" ? null : item.filters.regionId,
+                                        },
+                                      }
+                                    : item
+                                )
+                              );
+                            }}
+                          >
+                            <option value="">Administración: todas</option>
+                            <option value="C">Estado</option>
+                            <option value="A">Comunidad Autónoma</option>
+                            <option value="L">Entidad Local</option>
+                            <option value="O">Otros</option>
+                          </select>
+                          {p.filters.tipoAdministracion === "A" ? (
+                            <select
+                              value={p.filters.regionId ?? ""}
+                              disabled={profileBusyId === p.id}
+                              onChange={(e) => {
+                                const value = e.target.value ? Number(e.target.value) : null;
+                                setProfiles((prev) =>
+                                  prev.map((item) =>
+                                    item.id === p.id
+                                      ? { ...item, filters: { ...item.filters, regionId: value } }
+                                      : item
+                                  )
+                                );
+                              }}
+                            >
+                              <option value="">Comunidad Autónoma: todas</option>
+                              {regions.map((r) => (
+                                <option key={r.id} value={String(r.id)}>
+                                  {r.name}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input disabled placeholder="CCAA solo para administración autonómica" />
+                          )}
+                          <input
+                            type="date"
+                            value={p.filters.fechaDesde ?? ""}
+                            disabled={profileBusyId === p.id}
+                            onChange={(e) => {
+                              const value = e.target.value || null;
+                              setProfiles((prev) =>
+                                prev.map((item) =>
+                                  item.id === p.id
+                                    ? { ...item, filters: { ...item.filters, fechaDesde: value } }
+                                    : item
+                                )
+                              );
+                            }}
+                          />
+                          <input
+                            type="date"
+                            value={p.filters.fechaHasta ?? ""}
+                            disabled={profileBusyId === p.id}
+                            onChange={(e) => {
+                              const value = e.target.value || null;
+                              setProfiles((prev) =>
+                                prev.map((item) =>
+                                  item.id === p.id
+                                    ? { ...item, filters: { ...item.filters, fechaHasta: value } }
+                                    : item
+                                )
+                              );
+                            }}
+                          />
+                        </div>
+                        <div className={styles.profileActions}>
+                          <button
+                            type="button"
+                            className={styles.saveCompanyButton}
+                            disabled={profileBusyId === p.id}
+                            onClick={() => void saveProfileFull(p)}
+                          >
+                            Guardar cambios
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.mutedButton}
+                            disabled={profileBusyId === p.id}
+                            onClick={() => {
+                              setEditingProfileId(null);
+                              void loadProfiles();
+                            }}
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <p className={styles.profileCardTitle}>{p.name}</p>
+                        <p>
+                          {p.enabled ? "Activo" : "Inactivo"} · Texto:{" "}
+                          {p.filters.searchText || "(vacío)"} · Admin:{" "}
+                          {p.filters.tipoAdministracion ?? "todas"} · Región:{" "}
+                          {typeof p.filters.regionId === "number"
+                            ? (regionsById.get(p.filters.regionId) ?? p.filters.regionId)
+                            : "todas"}
+                        </p>
+                        <div className={styles.profileActions}>
+                          <button
+                            type="button"
+                            className={styles.primaryButton}
+                            disabled={profileBusyId === p.id}
+                            onClick={() => setEditingProfileId(p.id)}
+                          >
+                            Modificar
+                          </button>
+                          <button
+                            type="button"
+                            className={p.enabled ? styles.warningButton : styles.successButton}
+                            disabled={profileBusyId === p.id}
+                            onClick={() => void toggleProfileEnabled(p)}
+                          >
+                            {p.enabled ? "Desactivar" : "Activar"}
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.dangerButton}
+                            disabled={profileBusyId === p.id}
+                            onClick={() => void deleteProfile(p.id)}
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </li>
                 ))}
               </ul>

@@ -172,11 +172,11 @@ function buildAiProfileHtml(profile: DigestProfile, aiMap: Map<string, GrantAiRe
 
       return `
         <tr>
-          <td style="padding:8px 6px; vertical-align:top; font-size:14px; color:#9ca3af; border-bottom:1px solid #2a2d38;">${idx + 1}</td>
-          <td style="padding:8px 6px; vertical-align:top; border-bottom:1px solid #2a2d38;">
-            <span style="display:inline-block; padding:2px 8px; border-radius:4px; font-size:12px; font-weight:bold; color:#fff; background:${color};">${emoji} ${label}</span>
+          <td style="padding:6px 4px; vertical-align:top; font-size:14px; color:#9ca3af; border-bottom:1px solid #2a2d38;">${idx + 1}</td>
+          <td style="padding:6px 4px; vertical-align:top; border-bottom:1px solid #2a2d38;">
+            <span style="display:inline-block; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:bold; color:#fff; background:${color}; white-space:nowrap;">${emoji} ${label}</span>
           </td>
-          <td style="padding:8px 6px; vertical-align:top; border-bottom:1px solid #2a2d38;">
+          <td style="padding:6px 4px; vertical-align:top; border-bottom:1px solid #2a2d38; word-break:break-word; overflow-wrap:break-word;">
             <strong style="font-size:14px; color:#e5e7eb;">${escapeHtml(item.title)}</strong><br/>
             ${reason ? `<span style="font-size:13px; color:#9ca3af;">${reason}</span><br/>` : ""}
             ${link}
@@ -187,14 +187,14 @@ function buildAiProfileHtml(profile: DigestProfile, aiMap: Map<string, GrantAiRe
     .join("");
 
   return `
-    <section style="margin-bottom:20px; padding:14px; background:#1a1d27; border:1px solid #2a2d38; border-radius:8px;">
-      <h4 style="margin:0 0 8px 0; color:#e5e7eb;">${escapeHtml(profile.profileName)} <span style="font-weight:normal; font-size:13px; color:#6b7280;">(${profile.newItems.length} novedades)</span></h4>
-      <table style="width:100%; border-collapse:collapse;">
+    <section style="margin-bottom:20px; padding:10px; background:#1a1d27; border:1px solid #2a2d38; border-radius:8px; max-width:100%; overflow:hidden; box-sizing:border-box;">
+      <h4 style="margin:0 0 8px 0; color:#e5e7eb; word-break:break-word;">${escapeHtml(profile.profileName)} <span style="font-weight:normal; font-size:13px; color:#6b7280;">(${profile.newItems.length} novedades)</span></h4>
+      <table style="width:100%; border-collapse:collapse; table-layout:fixed;">
         <thead>
           <tr style="text-align:left;">
-            <th style="padding:6px; font-size:12px; color:#6b7280; border-bottom:2px solid #363a47;">#</th>
-            <th style="padding:6px; font-size:12px; color:#6b7280; border-bottom:2px solid #363a47;">Relevancia</th>
-            <th style="padding:6px; font-size:12px; color:#6b7280; border-bottom:2px solid #363a47;">Convocatoria</th>
+            <th style="padding:4px; font-size:12px; color:#6b7280; border-bottom:2px solid #363a47; width:24px;">#</th>
+            <th style="padding:4px; font-size:12px; color:#6b7280; border-bottom:2px solid #363a47; width:80px;">Relevancia</th>
+            <th style="padding:4px; font-size:12px; color:#6b7280; border-bottom:2px solid #363a47;">Convocatoria</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -209,11 +209,11 @@ function buildAiHtmlBody(input: SendWeeklyDigestInput): string {
     .join("");
 
   return `
-    <div style="font-family:Arial,sans-serif; color:#e5e7eb; background:#111318; padding:24px; border-radius:12px;">
+    <div style="font-family:Arial,sans-serif; color:#e5e7eb; background:#111318; padding:12px; border-radius:12px; max-width:100%; overflow:hidden; box-sizing:border-box;">
       <h2 style="margin:0 0 12px 0; color:#e5e7eb;">${escapeHtml(getDigestTitleFull())}</h2>
       <p style="margin:0 0 8px 0; color:#9ca3af;"><strong style="color:#e5e7eb;">Run ID:</strong> ${escapeHtml(input.runId)}</p>
       <p style="margin:0 0 16px 0; color:#9ca3af;"><strong style="color:#e5e7eb;">Fecha ejecución:</strong> ${escapeHtml(input.runAtIso)}</p>
-      <section style="margin-bottom:16px; padding:16px; background:#142a1b; border:1px solid #22c55e; border-radius:8px;">
+      <section style="margin-bottom:16px; padding:12px; background:#142a1b; border:1px solid #22c55e; border-radius:8px; box-sizing:border-box;">
         <h3 style="margin:0 0 8px 0; color:#86efac;">🤖 Recomendación IA</h3>
         <p style="margin:0; font-size:13px; color:#9ca3af;">
           Análisis automático basado en el perfil de tu empresa. Es una sugerencia orientativa; verifica siempre las condiciones oficiales de cada convocatoria.

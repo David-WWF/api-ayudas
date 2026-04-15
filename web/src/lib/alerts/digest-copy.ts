@@ -22,5 +22,6 @@ export function getDigestTelegramBanner(): string {
 
 export function getDigestEmailSubject(profilesWithNewsCount: number): string {
   const p = getDigestPeriodLabel();
-  return `[api-ayudas] Resumen ${p} (${profilesWithNewsCount} perfiles con novedades)`;
+  const d = new Date().toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return `[api-ayudas] Resumen ${p} ${d} (${profilesWithNewsCount} perfiles con novedades)`;
 }

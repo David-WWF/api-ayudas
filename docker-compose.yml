@@ -11,6 +11,7 @@ services:
       context: ./web
       dockerfile: Dockerfile
     container_name: ayudas_app
+    restart: unless-stopped
     ports:
       - "3000:3000"
     env_file:
@@ -31,6 +32,7 @@ services:
   db:
     image: public.ecr.aws/docker/library/postgres:16-alpine
     container_name: ayudas_db
+    restart: unless-stopped
     ports:
       - "5432:5432"
     environment:
@@ -48,6 +50,7 @@ services:
   scheduler:
     image: alpine:3.20
     container_name: ayudas_scheduler
+    restart: unless-stopped
     env_file:
       - ./web/.env.local
     depends_on:
