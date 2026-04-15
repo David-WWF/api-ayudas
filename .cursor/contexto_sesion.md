@@ -1,6 +1,6 @@
 # Contexto de sesion - api-ayudas
 
-Ultima actualizacion: 2026-04-13
+Ultima actualizacion: 2026-04-14
 
 Proyecto: app interna **Buscador de Ayudas** (titulo de pestaña y producto) para busqueda de convocatorias BDNS, sin cuentas de usuario.
 
@@ -55,6 +55,14 @@ La interfaz usa **modo oscuro permanente** (no toggle). Paleta gris-azulada:
 - Detalle completo en `.cursor/plans/dark_mode_ui_1f7b51a0.plan.md`.
 
 Archivos CSS afectados: `web/src/app/globals.css`, `web/src/app/page.module.css`.
+
+## Email / Telegram — Mejoras de maquetación (sesión 2026-04-14)
+
+- **Dark mode en email:** plantillas HTML (`mailer.ts`) actualizadas con la misma paleta oscura de la UI.
+- **Responsive móvil:** `table-layout:fixed`, anchos fijos en columnas `#` y `Relevancia`, `word-break:break-word` en columna de convocatoria, padding reducido y `box-sizing:border-box` + `overflow:hidden` en contenedores. Compatible con Gmail app.
+- **Badge de relevancia:** `white-space:nowrap` para que emoji + texto siempre queden en una línea.
+- **Asunto único por fecha:** `digest-copy.ts` incluye la fecha (`dd/mm/aaaa`) en el subject, evitando que Gmail agrupe correos en hilo y oculte contenido como "texto citado".
+- **Telegram:** formato mejorado con saltos de línea, separadores unicode y emojis.
 
 ## Regla de trabajo acordada con el usuario
 
