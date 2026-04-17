@@ -68,6 +68,25 @@ const RELEVANCE_LABEL: Record<string, string> = { alta: "ALTA", media: "MEDIA", 
 const RELEVANCE_COLOR: Record<string, string> = { alta: "#16a34a", media: "#ca8a04", baja: "#dc2626" };
 const RELEVANCE_EMOJI: Record<string, string> = { alta: "🟢", media: "🟡", baja: "🔴" };
 
+/** Aviso cuando la IA no marca ninguna novedad como prioridad media o alta. */
+const NO_MEDIUM_HIGH_INTEREST_MESSAGE =
+  "Hoy no se han encontrado notificaciones de subvenciones de interés, pero el sistema de alertas puede cometer errores, considera verificar la información adjunta.";
+
+function hasAnyMediumOrHighRelevance(
+  profiles: DigestProfile[],
+  aiMap: Map<string, GrantAiResult>
+): boolean {
+  for (const p of profiles) {
+    for (const item of p.newItems) {
+      const ai = aiMap.get(item.id);
+      if (!ai?.relevance) continue;
+      const r = ai.relevance.toLowerCase().trim();
+      if (r === "alta" || r === "media") return true;
+    }
+  }
+  return false;
+}
+
 type ItemWithAi = { item: DigestItem; ai: GrantAiResult | undefined };
 
 function relevanceSortKey(entry: ItemWithAi): number {
@@ -103,6 +122,11 @@ function buildAiTextBody(input: SendWeeklyDigestInput): string {
   lines.push("=== 🤖 RECOMENDACIÓN IA ===");
   lines.push("Análisis automático basado en el perfil de tu empresa (sugerencia, verificar condiciones oficiales).");
   lines.push("");
+
+  if (!hasAnyMediumOrHighRelevance(input.profiles, aiMap!)) {
+    lines.push(NO_MEDIUM_HIGH_INTEREST_MESSAGE);
+    lines.push("");
+  }
 
   for (const profile of input.profiles) {
     const sorted = sortByRelevance(profile.newItems, aiMap!);
@@ -219,6 +243,11 @@ function buildAiHtmlBody(input: SendWeeklyDigestInput): string {
           Análisis automático basado en el perfil de tu empresa. Es una sugerencia orientativa; verifica siempre las condiciones oficiales de cada convocatoria.
         </p>
       </section>
+      ${
+        !hasAnyMediumOrHighRelevance(input.profiles, input.aiMap!)
+          ? `<p style="margin:0 0 16px 0; padding:10px 12px; background:#1a1d27; border:1px solid #2a2d38; border-radius:8px; font-size:13px; color:#d1d5db; line-height:1.45;">${escapeHtml(NO_MEDIUM_HIGH_INTEREST_MESSAGE)}</p>`
+          : ""
+      }
       ${profileSections}
     </div>
   `;
