@@ -20,6 +20,10 @@ const DOCUMENTED_ROUTE_SEGMENTS: string[][] = [
   ["ai", "analyze-test"],
   ["health"],
   ["alerts", "weekly", "run"],
+  ["telegram", "webhook", "[secret]"],
+  ["ops", "status-helper"],
+  ["ops", "status-helper", "test-mail"],
+  ["ops", "status-helper", "run-job"],
 ];
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

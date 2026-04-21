@@ -157,3 +157,58 @@ export async function deleteNotificationRecipient(id: number): Promise<boolean> 
   const result = await db.query(`DELETE FROM notification_recipients WHERE id = $1`, [id]);
   return (result.rowCount ?? 0) > 0;
 }
+
+/** Chat autorizado para comandos del bot: destinatarios telegram activos u ops en env. */
+export async function isTelegramChatAuthorizedForBotCommands(chatId: string): Promise<boolean> {
+  const id = normalizeTelegramAddress(chatId);
+  const ops = (process.env.TELEGRAM_OPS_CHAT_IDS ?? "")
+    .split(",")
+    .map((s) => normalizeTelegramAddress(s))
+    .filter((x) => x.length > 0);
+  if (ops.includes(id)) return true;
+
+  await ensureNotificationRecipientsTable();
+  const result = await db.query(
+    `
+    SELECT 1 FROM notification_recipients
+    WHERE channel = 'telegram' AND address = $1 AND enabled = true
+    LIMIT 1
+    `,
+    [id]
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+export type RecipientChannelCounts = {
+  active: number;
+  paused: number;
+};
+
+/** Totales por canal para informes (/count_users). */
+export async function getNotificationRecipientCounts(): Promise<{
+  email: RecipientChannelCounts;
+  telegram: RecipientChannelCounts;
+}> {
+  await ensureNotificationRecipientsTable();
+  const result = await db.query(`
+    SELECT channel,
+      COUNT(*) FILTER (WHERE enabled = true)::int AS active,
+      COUNT(*) FILTER (WHERE enabled = false)::int AS paused
+    FROM notification_recipients
+    GROUP BY channel
+  `);
+
+  const out = {
+    email: { active: 0, paused: 0 },
+    telegram: { active: 0, paused: 0 },
+  };
+
+  for (const row of result.rows) {
+    const ch = row.channel === "telegram" ? "telegram" : "email";
+    const bucket = ch === "telegram" ? out.telegram : out.email;
+    bucket.active = Number(row.active ?? 0);
+    bucket.paused = Number(row.paused ?? 0);
+  }
+
+  return out;
+}

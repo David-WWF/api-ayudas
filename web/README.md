@@ -97,9 +97,8 @@ Archivo principal: `src/lib/alerts/weekly-runner.ts`
 - Inserta una fila por perfil en `alerts_history` con estado inicial:
   - `pending_dispatch` si hay novedades,
   - `no_news` si no hay novedades.
-- Si hay novedades, dispara en paralelo:
-  - `sendWeeklyDigestEmail` (`src/lib/alerts/mailer.ts`)
-  - `sendWeeklyDigestTelegram` (`src/lib/alerts/telegram.ts`)
+- Si hay novedades: envía el digest por `sendWeeklyDigestEmail` (`mailer.ts`) y después el informe corto por `sendAlertStatusTelegram` (`telegram.ts`).
+- Si no hay novedades (o solo omitidos por cron / sin perfiles): envía solo el informe de estado por Telegram cuando hay chats configurados.
 - Cada canal se protege con timeout exterior (`ALERTS_CHANNEL_TIMEOUT_MS`) para que no bloquee el job completo; si hay reintentos, el presupuesto se amplía automáticamente (ver abajo).
 - Reintentos por canal (SMTP y cada mensaje de Telegram): `ALERTS_CHANNEL_RETRIES` (por defecto `2`, es decir hasta 3 intentos) y `ALERTS_CHANNEL_RETRY_DELAY_MS` (base del backoff exponencial entre intentos, por defecto `1000`).
 - Consolida resultado final y actualiza `alerts_history` pendiente.
@@ -182,12 +181,18 @@ Todas las rutas bajo `/api` son la **BFF** (el navegador no llama a BDNS directa
 | `GET` | `/api/health` | Comprueba `DATABASE_URL` y conexion `SELECT NOW()`. |
 | `GET` | `/api/alerts/weekly/run` | Estado del runner (`inProgress`). |
 | `POST` | `/api/alerts/weekly/run` | Ejecuta el job; header opcional `x-alerts-secret` si `ALERTS_RUN_SECRET` esta definido. |
+| `POST` | `/api/telegram/webhook/<TELEGRAM_WEBHOOK_SECRET>` | Updates del bot (comandos `/status`, `/last_run`, `/test_mail`, `/count_users`). El segmento final debe coincidir con la variable de entorno. |
+| `GET` | `/api/ops/status-helper` | Datos para el modal **Status helper**: ultima ejecucion del job (`alert_job_ops_state`), listado de destinatarios (etiqueta, canal, direccion, estado), totales por canal y `requiresWeeklyRunSecret` (true si `ALERTS_RUN_SECRET` esta definido). |
+| `POST` | `/api/ops/status-helper/test-mail` | Correo de prueba SMTP con **vista previa HTML** del digest (datos sinteticos) ademas de texto plano (`TEST_MAIL_TO` o valor por defecto documentado). |
+| `POST` | `/api/ops/status-helper/run-job` | Ejecuta el mismo job que `POST /api/alerts/weekly/run` (misma auth `x-alerts-secret` si hay secreto, mismo rate limit **10 s** en memoria compartida). Respuesta JSON acotada (`runId`, `dispatchStatus`, totales, estados de canales). |
 
 **Seguridad:** no hay login de usuarios; quien pueda llegar al puerto 3000 puede usar la API. El unico control opcional del job es el secreto del `POST` anterior. En un PC dedicado en red local, restringe acceso de red o firewall si hace falta.
 
 ## Detalle del handler del job
 
-Implementacion: `src/app/api/alerts/weekly/run/route.ts`. Ademas de lo descrito en la tabla de la API: rate limit **10 s** entre POST consecutivos (estado en memoria del proceso Node). Respuestas HTTP tipicas: **401** (secreto incorrecto si `ALERTS_RUN_SECRET` esta definido), **429** (rate limit), **409** (`WeeklyRunAlreadyRunningError`), **500** (error interno).
+Implementacion: `src/app/api/alerts/weekly/run/route.ts` y `src/app/api/ops/status-helper/run-job/route.ts`. El rate limit **10 s** entre POST manuales es **compartido** (modulo `src/lib/alerts/weekly-run-manual-rate-limit.ts`). La auth por cabecera `x-alerts-secret` esta centralizada en `src/lib/alerts/alerts-run-http-auth.ts`. Respuestas HTTP tipicas: **401** (secreto incorrecto si `ALERTS_RUN_SECRET` esta definido), **429** (rate limit), **409** (`WeeklyRunAlreadyRunningError`), **500** (error interno).
+
+Webhook del bot: `src/app/api/telegram/webhook/[secret]/route.ts`. Registrar con la API de Telegram `setWebhook` apuntando a tu dominio publico HTTPS. Solo responde a chats autorizados (destinatarios `telegram` activos en BD o `TELEGRAM_OPS_CHAT_IDS`).
 
 ## Variables de entorno importantes
 
@@ -221,6 +226,9 @@ Definidas en `web/.env.local` (no versionado). Hay una **plantilla** comentada e
 - **Telegram**
   - `TELEGRAM_BOT_TOKEN`
   - `TELEGRAM_CHAT_ID` (fallback si no hay filas `telegram` activas en BD)
+  - `TELEGRAM_WEBHOOK_SECRET` (segmento de URL del webhook; sin definir, el POST del webhook responde 404)
+  - `TELEGRAM_OPS_CHAT_IDS` (opcional; CSV de chat_id con permiso para comandos ademas de destinatarios activos)
+  - `TEST_MAIL_TO` (opcional; destino de `/test_mail`, por defecto `david@weworkfactory.com` en codigo si no se define)
 - **IA (análisis de convocatorias)**
   - `OPENAI_API_KEY` (secreto; sin ella el sistema funciona sin sección IA)
   - `AI_MODEL` (por defecto `gpt-4o-mini`)

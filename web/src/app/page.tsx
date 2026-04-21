@@ -106,7 +106,48 @@ type NotificationRecipientsResponse = {
   error?: string;
 };
 
+type StatusHelperOpsState = {
+  lastRunId: string;
+  lastFinishedAt: string | null;
+  lastDispatchStatus: string;
+  lastEmailStatus: string;
+  lastEmailMessage: string;
+  lastTelegramStatus: string;
+  lastTelegramMessage: string;
+  lastSummaryJson: Record<string, unknown>;
+  lastLogText: string;
+};
+
+type StatusHelperRecipientCounts = {
+  email: { active: number; paused: number };
+  telegram: { active: number; paused: number };
+};
+
+type StatusHelperRecipientRow = {
+  id: number;
+  channel: "email" | "telegram";
+  address: string;
+  label: string | null;
+  enabled: boolean;
+};
+
+type StatusHelperData = {
+  opsState: StatusHelperOpsState | null;
+  recipientCounts: StatusHelperRecipientCounts;
+  recipients: StatusHelperRecipientRow[];
+  /** Si true, POST del job exige la misma cabecera que /api/alerts/weekly/run. */
+  requiresWeeklyRunSecret: boolean;
+};
+
+type StatusHelperResponse = {
+  ok: boolean;
+  data?: StatusHelperData;
+  error?: string;
+};
+
 const PAGE_SIZE = 10;
+
+const WEEKLY_RUN_SECRET_SESSION_KEY = "api-ayudas:x-alerts-secret";
 
 export default function Home() {
   const [queryInput, setQueryInput] = useState("ayuda");
@@ -169,6 +210,17 @@ export default function Home() {
   const [companyContextLoading, setCompanyContextLoading] = useState(false);
   const [companyContextSaving, setCompanyContextSaving] = useState(false);
   const [companyContextMsg, setCompanyContextMsg] = useState<string | null>(null);
+
+  const [statusHelperOpen, setStatusHelperOpen] = useState(false);
+  const [statusHelperLoading, setStatusHelperLoading] = useState(false);
+  const [statusHelperError, setStatusHelperError] = useState<string | null>(null);
+  const [statusHelperData, setStatusHelperData] = useState<StatusHelperData | null>(null);
+  const [statusHelperTestMailLoading, setStatusHelperTestMailLoading] = useState(false);
+  const [statusHelperTestMailMsg, setStatusHelperTestMailMsg] = useState<string | null>(null);
+  const [statusHelperRefreshedAt, setStatusHelperRefreshedAt] = useState<string | null>(null);
+  const [statusHelperRunJobLoading, setStatusHelperRunJobLoading] = useState(false);
+  const [statusHelperRunJobMsg, setStatusHelperRunJobMsg] = useState<string | null>(null);
+  const [weeklyRunSecretUi, setWeeklyRunSecretUi] = useState("");
 
   // Form nuevo perfil
   const [newProfileName, setNewProfileName] = useState("Nueva alerta");
@@ -440,6 +492,153 @@ export default function Home() {
       setCompanyContextMsg(err instanceof Error ? err.message : "Error guardando perfil de empresa");
     } finally {
       setCompanyContextSaving(false);
+    }
+  }
+
+  async function loadStatusHelper(mode: "full" | "merge" = "full") {
+    if (mode === "full") {
+      setStatusHelperLoading(true);
+      setStatusHelperError(null);
+    }
+    try {
+      const res = await fetch("/api/ops/status-helper", { cache: "no-store" });
+      const contentType = res.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        throw new Error("La API no devolvió JSON válido");
+      }
+      const json = (await res.json()) as StatusHelperResponse;
+      if (!res.ok || !json.ok || !json.data) {
+        throw new Error(json.error ?? "No se pudo cargar el estado");
+      }
+      const d = json.data;
+      setStatusHelperData({
+        opsState: d.opsState,
+        recipientCounts: d.recipientCounts,
+        recipients: Array.isArray(d.recipients) ? d.recipients : [],
+        requiresWeeklyRunSecret: Boolean(d.requiresWeeklyRunSecret),
+      });
+      if (d.requiresWeeklyRunSecret && typeof window !== "undefined") {
+        try {
+          const s = sessionStorage.getItem(WEEKLY_RUN_SECRET_SESSION_KEY);
+          if (s) setWeeklyRunSecretUi(s);
+        } catch {
+          // modo privado u otro bloqueo de almacenamiento
+        }
+      }
+      setStatusHelperRefreshedAt(
+        new Date().toLocaleString("es-ES", { dateStyle: "short", timeStyle: "medium" })
+      );
+    } catch (err) {
+      if (mode === "full") {
+        setStatusHelperError(err instanceof Error ? err.message : "Error cargando Status helper");
+        setStatusHelperData(null);
+      }
+    } finally {
+      if (mode === "full") setStatusHelperLoading(false);
+    }
+  }
+
+  async function runStatusHelperTestMail() {
+    setStatusHelperTestMailLoading(true);
+    setStatusHelperTestMailMsg(null);
+    try {
+      const res = await fetch("/api/ops/status-helper/test-mail", { method: "POST" });
+      const contentType = res.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        throw new Error("La API no devolvió JSON válido");
+      }
+      const json = (await res.json()) as { ok: boolean; message?: string };
+      if (!json.ok) {
+        setStatusHelperTestMailMsg(json.message ?? "No se pudo enviar el correo de prueba.");
+      } else {
+        setStatusHelperTestMailMsg(json.message ?? "Correo de prueba enviado.");
+      }
+    } catch (err) {
+      setStatusHelperTestMailMsg(
+        err instanceof Error ? err.message : "Error enviando correo de prueba."
+      );
+    } finally {
+      setStatusHelperTestMailLoading(false);
+    }
+  }
+
+  function persistWeeklyRunSecretInSession() {
+    const t = weeklyRunSecretUi.trim();
+    if (!t) {
+      setStatusHelperRunJobMsg("Escribe primero el valor de ALERTS_RUN_SECRET.");
+      return;
+    }
+    try {
+      sessionStorage.setItem(WEEKLY_RUN_SECRET_SESSION_KEY, t);
+      setStatusHelperRunJobMsg("Clave guardada en el navegador para esta sesión.");
+    } catch {
+      setStatusHelperRunJobMsg("No se pudo guardar en sessionStorage (p. ej. modo privado).");
+    }
+  }
+
+  async function runStatusHelperWeeklyJob() {
+    setStatusHelperRunJobLoading(true);
+    setStatusHelperRunJobMsg(null);
+    const needsSecret = Boolean(statusHelperData?.requiresWeeklyRunSecret);
+    const secretTrim = weeklyRunSecretUi.trim();
+    if (needsSecret && !secretTrim) {
+      setStatusHelperRunJobMsg(
+        "Este entorno exige ALERTS_RUN_SECRET: indícalo abajo o regístralo en el navegador para esta sesión."
+      );
+      setStatusHelperRunJobLoading(false);
+      return;
+    }
+    try {
+      const headers: HeadersInit = {};
+      if (secretTrim) headers["x-alerts-secret"] = secretTrim;
+      const res = await fetch("/api/ops/status-helper/run-job", {
+        method: "POST",
+        headers,
+      });
+      const contentType = res.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        throw new Error("La API no devolvió JSON válido");
+      }
+      const json = (await res.json()) as {
+        ok: boolean;
+        error?: string;
+        retryAfterMs?: number;
+        data?: {
+          runId: string;
+          dispatchStatus: string;
+          totalNewItems: number;
+          profilesSkippedCron: number;
+          emailStatus: string;
+          telegramStatus: string;
+        };
+      };
+      if (res.status === 429 && typeof json.retryAfterMs === "number") {
+        const s = Math.max(1, Math.ceil(json.retryAfterMs / 1000));
+        setStatusHelperRunJobMsg(
+          json.error ?? `Demasiadas ejecuciones seguidas. Prueba de nuevo en ${s} s.`
+        );
+        return;
+      }
+      if (!res.ok || !json.ok) {
+        setStatusHelperRunJobMsg(json.error ?? "No se pudo ejecutar el job.");
+        return;
+      }
+      if (json.data) {
+        setStatusHelperRunJobMsg(
+          `Job completado: runId ${json.data.runId}, estado ${json.data.dispatchStatus}, ` +
+            `${json.data.totalNewItems} convocatorias nuevas (omitidos por cron: ${json.data.profilesSkippedCron}). ` +
+            `Canales: email ${json.data.emailStatus}, telegram ${json.data.telegramStatus}.`
+        );
+      } else {
+        setStatusHelperRunJobMsg("Job completado.");
+      }
+      await loadStatusHelper("merge");
+    } catch (err) {
+      setStatusHelperRunJobMsg(
+        err instanceof Error ? err.message : "Error ejecutando el job de alertas."
+      );
+    } finally {
+      setStatusHelperRunJobLoading(false);
     }
   }
 
@@ -814,39 +1013,67 @@ export default function Home() {
           <h1>Buscador interno de ayudas</h1>
           <p>Consulta convocatorias públicas desde BDNS a través de tu API interna.</p>
           <div className={styles.headerActions}>
-            <button
-              type="button"
-              className={styles.manageAlertsButton}
-              onClick={() => {
-                setProfilesModalOpen(true);
-                void loadProfiles();
-                void loadRecipients();
-                void loadCompanyProfile();
-              }}
-            >
-              <svg
-                className={styles.manageAlertsIcon}
-                viewBox="0 0 24 24"
-                fill="none"
-                aria-hidden="true"
+            <div className={styles.headerButtonRow}>
+              <button
+                type="button"
+                className={styles.manageAlertsButton}
+                onClick={() => {
+                  setProfilesModalOpen(true);
+                  void loadProfiles();
+                  void loadRecipients();
+                  void loadCompanyProfile();
+                }}
               >
-                <path
-                  d="M12 3a6 6 0 0 0-6 6v3.6l-1.4 2.8a1 1 0 0 0 .9 1.6h13a1 1 0 0 0 .9-1.6L18 12.6V9a6 6 0 0 0-6-6Z"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                <path
-                  d="M9.5 18a2.5 2.5 0 0 0 5 0"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              <span>Gestionar alertas</span>
-            </button>
+                <svg
+                  className={styles.manageAlertsIcon}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M12 3a6 6 0 0 0-6 6v3.6l-1.4 2.8a1 1 0 0 0 .9 1.6h13a1 1 0 0 0 .9-1.6L18 12.6V9a6 6 0 0 0-6-6Z"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M9.5 18a2.5 2.5 0 0 0 5 0"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                <span>Gestionar alertas</span>
+              </button>
+              <button
+                type="button"
+                className={styles.statusHelperButton}
+                onClick={() => {
+                  setStatusHelperOpen(true);
+                  setStatusHelperTestMailMsg(null);
+                  setStatusHelperRunJobMsg(null);
+                  setStatusHelperRefreshedAt(null);
+                  void loadStatusHelper();
+                }}
+              >
+                <svg
+                  className={styles.manageAlertsIcon}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M4 6h16M4 12h10M4 18h14"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <span>Status helper</span>
+              </button>
+            </div>
           </div>
         </header>
 
@@ -1536,6 +1763,231 @@ export default function Home() {
                   </li>
                 ))}
               </ul>
+            </div>
+          </div>
+        )}
+
+        {statusHelperOpen && (
+          <div
+            className={styles.modalOverlay}
+            onClick={() => {
+              setStatusHelperOpen(false);
+              setStatusHelperTestMailMsg(null);
+              setStatusHelperRunJobMsg(null);
+            }}
+          >
+            <div className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                className={styles.modalClose}
+                onClick={() => {
+                  setStatusHelperOpen(false);
+                  setStatusHelperTestMailMsg(null);
+                  setStatusHelperRunJobMsg(null);
+                }}
+              >
+                ×
+              </button>
+
+              <h2 className={styles.modalTitle}>Status helper</h2>
+              <p className={styles.modalHint}>
+                Resumen de la última ejecución del job de alertas, registro técnico guardado,
+                listado de destinatarios, correo de prueba con la misma maquetación que el digest
+                (datos sintéticos) y opción de lanzar una ejecución completa desde el navegador.
+              </p>
+
+              <hr className={styles.sectionDivider} />
+
+              <h3 className={styles.modalSectionTitle}>Acciones rápidas</h3>
+              <p className={styles.modalHint}>
+                Actualiza la vista, envía un correo de prueba (SMTP y maquetación) o ejecuta el job
+                completo (BDNS, historial, envío a canales). El mismo límite de 10 s entre ejecuciones
+                manuales aplica aquí y en <code>POST /api/alerts/weekly/run</code>.
+              </p>
+              <div className={`${styles.actions} ${styles.modalActions}`}>
+                <button
+                  type="button"
+                  className={styles.primaryButton}
+                  disabled={statusHelperLoading}
+                  onClick={() => void loadStatusHelper()}
+                >
+                  {statusHelperLoading ? "Actualizando..." : "Actualizar"}
+                </button>
+                <button
+                  type="button"
+                  className={styles.addRecipientButton}
+                  disabled={statusHelperTestMailLoading}
+                  onClick={() => void runStatusHelperTestMail()}
+                >
+                  {statusHelperTestMailLoading
+                    ? "Enviando..."
+                    : "Enviar correo de prueba (vista previa del digest)"}
+                </button>
+                <button
+                  type="button"
+                  className={styles.warningButton}
+                  disabled={
+                    statusHelperRunJobLoading ||
+                    statusHelperLoading ||
+                    !statusHelperData ||
+                    (statusHelperData.requiresWeeklyRunSecret && !weeklyRunSecretUi.trim())
+                  }
+                  onClick={() => void runStatusHelperWeeklyJob()}
+                >
+                  {statusHelperRunJobLoading ? "Ejecutando job…" : "Ejecutar job ahora"}
+                </button>
+              </div>
+
+              {statusHelperData?.requiresWeeklyRunSecret ? (
+                <div className={`${styles.profileCard} ${styles.statusHelperSecretBlock}`}>
+                  <p className={styles.profileCardTitle}>Clave de ejecución del job</p>
+                  <p className={styles.modalHint}>
+                    El servidor tiene <code>ALERTS_RUN_SECRET</code>: indica el mismo valor que en
+                    la cabecera <code>x-alerts-secret</code> del cron. Solo se usa en tu navegador
+                    para esta petición; puedes guardarlo en sessionStorage con el botón de abajo.
+                  </p>
+                  <input
+                    type="password"
+                    className={styles.modalSecretInput}
+                    autoComplete="off"
+                    value={weeklyRunSecretUi}
+                    onChange={(e) => setWeeklyRunSecretUi(e.target.value)}
+                    placeholder="ALERTS_RUN_SECRET"
+                  />
+                  <div className={`${styles.actions} ${styles.modalActions}`}>
+                    <button
+                      type="button"
+                      className={styles.secondaryButton}
+                      onClick={() => persistWeeklyRunSecretInSession()}
+                    >
+                      Recordar en esta sesión
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {statusHelperRefreshedAt ? (
+                <p className={styles.modalHint}>
+                  <strong>Vista actualizada:</strong> {statusHelperRefreshedAt}
+                </p>
+              ) : null}
+
+              {statusHelperTestMailMsg ? (
+                <p className={styles.modalHint}>{statusHelperTestMailMsg}</p>
+              ) : null}
+
+              {statusHelperRunJobMsg ? (
+                <p className={styles.modalHint}>{statusHelperRunJobMsg}</p>
+              ) : null}
+
+              <hr className={styles.sectionDivider} />
+
+              {statusHelperLoading ? (
+                <p className={styles.modalHint}>Cargando información del sistema…</p>
+              ) : null}
+              {statusHelperError ? <p className={styles.error}>Error: {statusHelperError}</p> : null}
+
+              {!statusHelperLoading && !statusHelperError && statusHelperData ? (
+                <>
+                  <h3 className={styles.modalSectionTitle}>Última ejecución del job</h3>
+                  {statusHelperData.opsState && statusHelperData.opsState.lastRunId ? (
+                    <div className={styles.profileCard}>
+                      <p className={styles.profileCardTitle}>Resultado guardado</p>
+                      <p>
+                        <strong>runId:</strong>{" "}
+                        <code>{statusHelperData.opsState.lastRunId}</code>
+                      </p>
+                      <p>
+                        <strong>Fin:</strong> {statusHelperData.opsState.lastFinishedAt ?? "—"}
+                      </p>
+                      <p>
+                        <strong>Estado consolidado:</strong>{" "}
+                        {statusHelperData.opsState.lastDispatchStatus}
+                      </p>
+                      <p>
+                        <strong>Email:</strong> {statusHelperData.opsState.lastEmailStatus} —{" "}
+                        {statusHelperData.opsState.lastEmailMessage}
+                      </p>
+                      <p>
+                        <strong>Telegram:</strong> {statusHelperData.opsState.lastTelegramStatus} —{" "}
+                        {statusHelperData.opsState.lastTelegramMessage}
+                      </p>
+                      {typeof statusHelperData.opsState.lastSummaryJson.totalNewItems ===
+                      "number" ? (
+                        <p>
+                          <strong>Convocatorias nuevas (última ejecución):</strong>{" "}
+                          {String(statusHelperData.opsState.lastSummaryJson.totalNewItems)}
+                        </p>
+                      ) : null}
+                      {typeof statusHelperData.opsState.lastSummaryJson.profilesSkippedCron ===
+                      "number" ? (
+                        <p>
+                          <strong>Perfiles omitidos por cron:</strong>{" "}
+                          {String(statusHelperData.opsState.lastSummaryJson.profilesSkippedCron)}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <p className={styles.modalHint}>
+                      Aún no hay datos de una ejecución guardada en el sistema. Ejecuta el job de
+                      alertas al menos una vez (cron, POST manual o «Ejecutar job ahora» arriba).
+                    </p>
+                  )}
+
+                  <hr className={styles.sectionDivider} />
+
+                  <h3 className={styles.modalSectionTitle}>Destinatarios del resumen</h3>
+                  <p className={styles.modalHint}>
+                    Resumen: email{" "}
+                    <strong>{statusHelperData.recipientCounts.email.active}</strong> activos /{" "}
+                    <strong>{statusHelperData.recipientCounts.email.paused}</strong> pausados ·
+                    Telegram <strong>{statusHelperData.recipientCounts.telegram.active}</strong>{" "}
+                    activos / <strong>{statusHelperData.recipientCounts.telegram.paused}</strong>{" "}
+                    pausados.
+                  </p>
+                  {statusHelperData.recipients.length === 0 ? (
+                    <p className={styles.modalHint}>
+                      No hay destinatarios en base de datos; se usará solo la configuración por
+                      variables de entorno si existe.
+                    </p>
+                  ) : (
+                    <ul className={styles.profileList}>
+                      {statusHelperData.recipients.map((r) => (
+                        <li key={r.id} className={styles.profileCard}>
+                          <p className={styles.profileCardTitle}>
+                            {r.label?.trim() ? r.label : "Sin etiqueta"}
+                          </p>
+                          <p>
+                            <strong>{r.channel === "email" ? "Email" : "Telegram"}</strong>
+                            {": "}
+                            <code>{r.address}</code>
+                          </p>
+                          <p className={styles.modalHint}>
+                            Estado: {r.enabled ? "Activo" : "Pausado"}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  <hr className={styles.sectionDivider} />
+
+                  <h3 className={styles.modalSectionTitle}>Registro de la última ejecución</h3>
+                  <p className={styles.modalHint}>
+                    Texto técnico persistido tras la última ejecución correcta del job (útil para
+                    diagnóstico).
+                  </p>
+                  {statusHelperData.opsState?.lastLogText ? (
+                    <div className={styles.profileCard}>
+                      <pre className={styles.statusHelperLogPre}>
+                        {statusHelperData.opsState.lastLogText}
+                      </pre>
+                    </div>
+                  ) : (
+                    <p className={styles.modalHint}>Sin log guardado todavía.</p>
+                  )}
+                </>
+              ) : null}
             </div>
           </div>
         )}

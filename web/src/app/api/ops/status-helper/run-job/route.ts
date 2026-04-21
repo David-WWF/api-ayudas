@@ -3,7 +3,6 @@ import { isAlertsWeeklyRunAuthorized } from "@/lib/alerts/alerts-run-http-auth";
 import { consumeWeeklyRunManualRateSlot } from "@/lib/alerts/weekly-run-manual-rate-limit";
 import {
   runWeeklyAlerts,
-  isWeeklyRunInProgress,
   WeeklyRunAlreadyRunningError,
 } from "@/lib/alerts/weekly-runner";
 
@@ -11,7 +10,6 @@ export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
   try {
-    // Control de acceso simple por secreto compartido via header.
     if (!isAlertsWeeklyRunAuthorized(request)) {
       return NextResponse.json(
         { ok: false, error: "No autorizado para ejecutar el envío de alertas." },
@@ -23,11 +21,10 @@ export async function POST(request: NextRequest) {
     if (rate.limited) {
       console.warn(
         JSON.stringify({
-          event: "weekly_run_http_rate_limited",
+          event: "weekly_run_ops_ui_rate_limited",
           retryAfterMs: rate.retryAfterMs,
         })
       );
-
       return NextResponse.json(
         {
           ok: false,
@@ -38,21 +35,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.info(JSON.stringify({ event: "weekly_run_http_requested" }));
-    // Delega toda la logica de negocio al runner central.
+    console.info(JSON.stringify({ event: "weekly_run_ops_ui_requested" }));
     const data = await runWeeklyAlerts();
-    return NextResponse.json({ ok: true, data });
+    return NextResponse.json({
+      ok: true,
+      data: {
+        runId: data.runId,
+        dispatchStatus: data.dispatchStatus,
+        totalNewItems: data.totalNewItems,
+        profilesSkippedCron: data.profilesSkippedCron,
+        emailStatus: data.emailStatus,
+        telegramStatus: data.telegramStatus,
+      },
+    });
   } catch (error) {
     if (error instanceof WeeklyRunAlreadyRunningError) {
-      console.warn(JSON.stringify({ event: "weekly_run_http_conflict" }));
-      return NextResponse.json(
-        { ok: false, error: error.message },
-        { status: 409 }
-      );
+      console.warn(JSON.stringify({ event: "weekly_run_ops_ui_conflict" }));
+      return NextResponse.json({ ok: false, error: error.message }, { status: 409 });
     }
     console.error(
       JSON.stringify({
-        event: "weekly_run_http_failed",
+        event: "weekly_run_ops_ui_failed",
         error: error instanceof Error ? error.message : "error_desconocido",
       })
     );
@@ -64,13 +67,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-export async function GET() {
-  // Endpoint de estado simple para UI/healthchecks.
-  return NextResponse.json({
-    ok: true,
-    inProgress: isWeeklyRunInProgress(),
-    message: "Usa POST para ejecutar el job de alertas.",
-  });
 }

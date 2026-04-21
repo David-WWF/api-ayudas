@@ -20,7 +20,8 @@ alwaysApply: true
 
 - Proyecto **interno** para valorar futura comercialización; no hace falta formalizar “entregables” de documentación externa, pero sí mantener el trabajo **organizado por bloques** (plan en repo, estado por bloque).
 - **Sin cuentas de usuario** ni autenticación de personas en esta fase.
-- **Buscador de Ayudas** (nombre de producto en UI): alertas **programadas por cron** (p. ej. diarias) con **envío duplicado** (email y Telegram); **varios perfiles** de filtros y **destinatarios** persistidos en BD (`notification_recipients`), con credenciales SMTP/bot en env.
+- **Buscador de Ayudas** (nombre de producto en UI): alertas **programadas por cron** (p. ej. a las 9 según `ALERTS_AUTORUN_CRON` + `TZ` + `schedule_cron` de perfiles); **email** con digest de novedades; **Telegram** con **informe de estado** por corrida (no duplica el digest) + **comandos** vía webhook (`/status`, `/last_run`, `/test_mail`, `/count_users`). **Varios perfiles** de filtros y **destinatarios** en BD (`notification_recipients`); credenciales SMTP/bot en env.
+- **Status helper (bloque 14, v1 hecho):** botón en la home + modal; `GET /api/ops/status-helper` + `POST /api/ops/status-helper/test-mail`; sin ejecutar el job desde la UI en v1. Detalle en el plan (Bloque 14).
 - Integración con la API/documentación del BDNS: `https://www.pap.hacienda.gob.es/bdnstrans/GE/es/doc`.
 
 ## Stack y despliegue
@@ -34,3 +35,16 @@ alwaysApply: true
 
 - Capa **BFF** (API interna) que encapsule la API externa BDNS: el front no debe acoplar filtros directamente a detalles frágiles de la API pública.
 - Diseño pensado para que en el futuro se puedan añadir usuarios o multi-tenant **sin reescribir todo** (separación UI / dominio / integración).
+
+## Bloque 13 — Telegram como reportador de estado (implementado)
+
+Fuente de verdad ampliada: `.cursor/plans/plan_interno_ayudas_docker_bebc1756.plan.md` (sección **Bloque 13**).
+
+- **Hecho:** `sendAlertStatusTelegram` + `weekly-runner` (correo digest primero, luego informe Telegram; sin novedades solo informe). Estado última corrida en tabla `alert_job_ops_state` (para `/status` y `/last_run`).
+- **Hecho:** webhook `POST /api/telegram/webhook/<TELEGRAM_WEBHOOK_SECRET>` con comandos `/status`, `/last_run`, `/test_mail`, `/count_users`, `/help`. Autorización: destinatarios `telegram` activos en BD o `TELEGRAM_OPS_CHAT_IDS`.
+- **Variables:** `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_OPS_CHAT_IDS`, `TEST_MAIL_TO` (default documentado en código/README hacia el correo de prueba acordado).
+
+## Bloque 14 — Status helper en la web (v1 implementado)
+
+- **Hecho:** botón **Status helper** + modal en `page.tsx`; `GET /api/ops/status-helper`; `POST /api/ops/status-helper/test-mail`.
+- **v2 (futuro):** ejecutar job manual desde la UI y refresco automático. Ver plan `.cursor/plans/plan_interno_ayudas_docker_bebc1756.plan.md` sección **Bloque 14**.

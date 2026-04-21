@@ -377,3 +377,109 @@ export async function sendWeeklyDigestEmail(
     message: lastMessage,
   };
 }
+
+const DEFAULT_TEST_MAIL_TO = "david@weworkfactory.com";
+
+/** Datos sintéticos para maquetar el mismo HTML que un digest real (sin convocatorias BDNS). */
+function buildSampleTestDigestInput(): SendWeeklyDigestInput {
+  const runAtIso = new Date().toISOString();
+  return {
+    runId: "prueba-maquetacion-status-helper",
+    runAtIso,
+    profiles: [
+      {
+        profileId: 0,
+        profileName: "Perfil de ejemplo (sintético)",
+        newItems: [
+          {
+            id: "EJEMPLO-001",
+            title:
+              "Convocatoria ficticia para comprobar tipografía, colores y bloques del correo de alertas",
+            organization: "Organismo de demostración",
+            publicationDate: runAtIso.slice(0, 10),
+            sourceUrl: "https://www.pap.hacienda.gob.es/bdnstrans/GE/es/convocatorias/",
+          },
+          {
+            id: "EJEMPLO-002",
+            title:
+              "Segunda convocatoria ficticia con un título más largo, para ver saltos de línea y listas en el HTML del digest",
+            organization: "Otro organismo de demostración",
+            publicationDate: runAtIso.slice(0, 10),
+            sourceUrl: null,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+/** Correo de prueba: valida SMTP y muestra la maquetación clásica del digest (sin datos reales). */
+export async function sendAlertsChannelTestEmail(): Promise<SendWeeklyDigestResult> {
+  const to = (process.env.TEST_MAIL_TO ?? DEFAULT_TEST_MAIL_TO).trim();
+  const host = process.env.SMTP_HOST ?? "";
+  const port = Number(process.env.SMTP_PORT ?? "587");
+  const user = process.env.SMTP_USER ?? "";
+  const pass = process.env.SMTP_PASS ?? "";
+  const from = process.env.SMTP_FROM ?? "";
+  const secure = process.env.SMTP_SECURE === "true";
+
+  if (!host || !port || !user || !pass || !from) {
+    return {
+      status: "error",
+      message: "Configuración SMTP incompleta (SMTP_HOST/PORT/USER/PASS/FROM).",
+    };
+  }
+
+  const transporter = nodemailer.createTransport({
+    host,
+    port,
+    secure,
+    auth: { user, pass },
+  });
+
+  const sample = buildSampleTestDigestInput();
+  const digestHtml = buildClassicHtmlBody(sample);
+  const disclaimerHtml = `
+    <div style="margin:0 0 20px;padding:14px;background:#1e3a5f;border:1px solid #3b82f6;border-radius:10px;color:#bfdbfe;font-size:14px;line-height:1.45;">
+      <strong style="color:#e0f2fe;">Vista previa de prueba</strong><br/>
+      Este mensaje no contiene convocatorias reales del BDNS. Sirve para comprobar la conexión SMTP
+      y la apariencia del digest (misma plantilla que un envío clásico sin bloque de IA).
+    </div>
+  `;
+  const html = `<div style="font-family:Arial,sans-serif;">${disclaimerHtml}${digestHtml}</div>`;
+
+  const textLines = [
+    "Vista previa de prueba — no contiene datos reales del BDNS.",
+    "",
+    `Run ID ficticio: ${sample.runId}`,
+    `Fecha: ${sample.runAtIso}`,
+    "",
+    "Perfil de ejemplo (sintético):",
+    "  1. Convocatoria ficticia para comprobar tipografía…",
+    "  2. Segunda convocatoria ficticia con un título más largo…",
+    "",
+    "Abre la versión HTML del mensaje para ver el diseño del digest.",
+  ];
+  const text = textLines.join("\n");
+
+  const subject = `${getDigestTitleFull()} — Prueba de maquetación (Status helper)`;
+
+  try {
+    await transporter.sendMail({
+      from,
+      to,
+      subject,
+      text,
+      html,
+    });
+    return {
+      status: "sent",
+      message: `Correo de prueba (con vista previa del digest) enviado a ${to}.`,
+    };
+  } catch (error) {
+    return {
+      status: "error",
+      message: error instanceof Error ? error.message : "Error SMTP desconocido.",
+    };
+  }
+}

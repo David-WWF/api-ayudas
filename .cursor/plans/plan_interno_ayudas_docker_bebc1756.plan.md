@@ -1,6 +1,6 @@
 ---
 name: Plan interno ayudas docker
-overview: MVP interno Next.js (Buscador de Ayudas / BDNS) con alertas por cron, envío duplicado email + Telegram y destinatarios en BD, sin gestión de usuarios; Docker desde el inicio y enfoque didáctico.
+overview: MVP interno Next.js (Buscador de Ayudas / BDNS) con alertas por cron, email (digest completo) + Telegram (informe de estado + comandos webhook; bloque 13 hecho), destinatarios en BD, y **Status helper** en la web (bloque 14 v1 hecho) sin gestión de usuarios; Docker desde el inicio y enfoque didáctico.
 todos:
   - id: bloque-1-docker-base
     content: Levantar estructura Next.js + PostgreSQL en Docker y verificar entorno reproducible.
@@ -41,6 +41,12 @@ todos:
   - id: bloque-12-enriquecimiento-elegibilidad
     content: "Parte 2 — Enriquecimiento vía API BDNS: obtener tipo de beneficiario, sector, región y finalidad de cada convocatoria y alimentar el prompt de IA."
     status: completed
+  - id: bloque-13-telegram-estado-y-comandos
+    content: "Telegram como reportador de estado (informe diario alineado al job, sin duplicar el digest del correo) + webhook de comandos (/status, /last_run, /test_mail, /count_users) con control de acceso."
+    status: completed
+  - id: bloque-14-status-helper-ui-v1
+    content: "UI Status helper (v1): botón + modal en home; lectura de estado última corrida (alert_job_ops_state), log last_run, conteos destinatarios; acción única 'correo de prueba' (TEST_MAIL_TO). Sin ejecutar job desde UI en v1."
+    status: completed
 isProject: false
 ---
 
@@ -65,7 +71,7 @@ Aplicación web interna para:
 - Buscar convocatorias de ayudas/subvenciones a empresas.
 - Filtrar y consultar detalle.
 - Enviar alertas **programadas** (cron, p. ej. diarias) por email con novedades según múltiples perfiles.
-- Enviar el mismo resumen **duplicado** por **email y Telegram** a destinatarios configurados en BD (o fallback env).
+- Enviar resumen por **email** y aviso por **Telegram** a destinatarios en BD (o fallback env). **Nota (bloque 13 pendiente):** Telegram dejará de duplicar el digest largo y pasará a un **informe de estado** diario + comandos operativos.
 
 Fuente principal: BDNS ([https://www.pap.hacienda.gob.es/bdnstrans/GE/es/doc](https://www.pap.hacienda.gob.es/bdnstrans/GE/es/doc)).
 
@@ -221,6 +227,8 @@ Tablas mínimas sugeridas (enfoque multi-alerta):
 - Bloque 10: **Completado** (IA integrada en `weekly-runner.ts`: lee `company_profile`, llama a `analyzeGrants`, pasa `aiMap` a canales, persiste scoring en `alerts_history`).
 - Bloque 11: **Completado** (email: sección "Recomendación IA" con tabla HTML ordenada por prioridad + links; Telegram: bloque compacto con emoji + links, bajas solo contadas; disclaimer en ambos).
 - Bloque 12: **Completado** (enriquecimiento vía API BDNS: tipo beneficiario, sector, región, finalidad → enriquecer prompt IA; no requiere scraping).
+- Bloque 13: **Completado** — Telegram como reportador de estado + webhook de comandos (ver sección siguiente).
+- Bloque 14: **Completado** — Status helper en la web (v1: consulta + correo de prueba; ver sección Bloque 14).
 
 ### Bloque 6 - Hardening para uso interno
 
@@ -374,6 +382,165 @@ Y en cada bloque reportarás:
 - **Cambios/límites BDNS** -> encapsulación en BFF + caché + reintentos.
 - **Ruido en alertas** -> filtros globales bien definidos + deduplicación por identificador/hash.
 - **Migración a servidor** -> Docker Compose y variables de entorno desde inicio.
+
+---
+
+# Bloque 13 — Telegram: informe de estado diario y comandos (completado en código)
+
+## Objetivo
+
+Separar responsabilidades de canales:
+
+| Canal | Rol |
+|--------|-----|
+| **Email** | Digest completo de novedades (contenido rico, tablas IA, enlaces), solo cuando hay convocatorias nuevas que disparan el envío. |
+| **Telegram** | **Operaciones / estado**: en cada corrida del job a la hora programada (misma cadencia que hoy: scheduler + `ALERTS_AUTORUN_CRON`, típicamente **9:00** con `TZ` alineado y perfiles con `schedule_cron` compatible, p. ej. `0 9 * * *`), recibir un **mensaje corto de reporte**, no el mismo HTML/listado largo del correo. |
+
+Comportamiento deseado del informe automático (tras `runWeeklyAlerts`):
+
+1. **Hubo correo (novedades y envío email OK)**  
+   - Resumir: número total de ayudas nuevas detectadas.  
+   - **Por perfil (filtro)**: cuántas novedades.  
+   - **Por relevancia IA** (alta / media / baja): conteos **globales** y, si cabe en el límite de Telegram, **por perfil** (si no, global + “detalle en correo”).  
+   - Enlace opcional a la app o recordatorio de que el detalle está en el email.
+
+2. **No hubo correo porque no hubo novedades** (`dispatchStatus === "no_news"` hoy: no se llama a mailer ni a Telegram)  
+   - **Cambio de producto**: enviar **solo a Telegram** (o a todos los chats activos) un mensaje explícito del tipo: “Ejecución OK, 0 novedades, no se ha enviado email.”  
+   - Opcional: una línea por perfil con “0 nuevas” para tranquilidad operativa.
+
+3. **Fallo que impide o degradar el envío de correos**  
+   - Telegram debe reflejar **error de email** (mensaje SMTP / proveedor), y si aplica **por qué no salió correo** (p. ej. sin destinatarios, error SMTP, timeout).  
+   - Si el fallo es **antes** del envío (BDNS, crash del job), valorar persistir último error y que el informe de Telegram lo muestre **solo si** esa ejecución llegó a intentar notificar (puede requerir `try/finally` que envíe Telegram en caso de fallo parcial — diseño a decidir).  
+   - Si email falla pero “había novedades”, el informe debe dejar claro: novedades detectadas + fallo de correo.
+
+## Cambios técnicos previstos (implementación posterior)
+
+### A) Nuevo flujo en el runner (`weekly-runner.ts`)
+
+- Extraer construcción de un objeto **`TelegramStatusPayload`** a partir de: `runId`, `dispatchStatus`, `profileSummaries`, `digestProfiles` + `aiMap`, `emailStatus` / `emailMessage`, `telegramStatus` / `telegramMessage` (este último pasará a ser sobre todo el envío del *informe*, no del digest).  
+- Sustituir la llamada actual `sendWeeklyDigestTelegram(payload)` por algo tipo **`sendAlertStatusTelegram(payload)`** cuando haya chats configurados.  
+- **Siempre** intentar enviar el informe de estado cuando la corrida termina con normalidad (incluido `no_news`), salvo decisión explícita de no molestar si **todos** los perfiles activos fueron omitidos por cron (documentar el criterio en README).  
+- Mantener `sendWeeklyDigestTelegram` solo si se desea flag de compatibilidad (`TELEGRAM_SEND_FULL_DIGEST=true`) o eliminarlo tras validación — **por defecto** solo informe.
+
+### B) Nuevo módulo o extensión de `telegram.ts`
+
+- Plantillas de texto: cabecera con fecha/hora (`runAtIso`), emoji de estado (OK / sin novedades / error).  
+- Funciones puras de formato: agregación **alta/media/baja** desde `aiMap` (misma semántica que `grant-analyzer`: `alta` | `media` | `baja`).  
+- Reutilizar reintentos y límites de caracteres ya existentes (`channel-retry`, partición de mensajes).
+
+### C) Comandos del bot (`/status`, `/last_run`, `/test_mail`, `/count_users`)
+
+Los comandos implican **recibir updates** de Telegram, no solo `sendMessage`:
+
+- **Webhook HTTP** (recomendado en Next.js): ruta p. ej. `POST /api/telegram/webhook` con URL secreta (`TELEGRAM_WEBHOOK_SECRET` en path o header) para que no sea invocable públicamente sin el token. Registrar con `setWebhook` en BotFather / API de Telegram apuntando al dominio público del despliegue.  
+- **Alternativa** menos idónea en este stack: long-polling en un proceso aparte (no encaja bien con serverless puro).
+
+**Seguridad (obligatoria):**
+
+- Responder **solo** a `chat_id` que estén en `notification_recipients` con `channel = 'telegram'` y `enabled = true`, **y/o** lista explícita en env (`TELEGRAM_OPS_CHAT_IDS`) para cuentas de operación.  
+- Ignorar comandos de desconocidos (log mínimo sin datos sensibles).
+
+**Comportamiento por comando:**
+
+| Comando | Comportamiento propuesto |
+|---------|---------------------------|
+| `/status` | Resumen del **último run** exitoso o con error: leer de BD (`alerts_history` agrupado por `run_id` reciente, o nueva tabla compacta `alert_job_runs` si hace falta un solo row por ejecución con JSON). Incluir `dispatchStatus`, fechas, conteos. |
+| `/last_run` | Texto de log legible: última ejecución — si no hay persistencia de log estructurado, **añadir** persistencia mínima (p. ej. columna o tabla `last_run_summary_json` + `last_run_log_text` truncado a N caracteres generado al finalizar el job) o devolver agregación desde `alerts_history` + mensajes de error consolidados. |
+| `/test_mail` | Disparar envío de **un correo de prueba** al destinatario configurado (por defecto `david@weworkfactory.com` vía env `TEST_MAIL_TO` o similar; **no hardcodear en código** salvo default documentado). Reutilizar capa SMTP de `mailer.ts`. Confirmación por Telegram. |
+| `/count_users` | Consulta SQL a `notification_recipients`: totales por canal, activos vs pausados (`enabled`), opcionalmente listar etiquetas sin exponer direcciones completas si hay privacidad (o solo conteos). |
+
+**Variables de entorno nuevas (borrador):**
+
+- `TELEGRAM_WEBHOOK_SECRET` — segmento de URL o token para validar el webhook.  
+- `TELEGRAM_OPS_CHAT_IDS` (opcional) — chat IDs que pueden usar comandos aunque no estén como destinatarios de digest.  
+- `TEST_MAIL_TO` — destino del test (default documentado hacia el correo indicado por negocio).
+
+### D) Documentación y despliegue
+
+- README: cómo registrar webhook con URL pública HTTPS, variable de secret, y matriz “qué esperar en Telegram” según `no_news` / éxito / fallo parcial.  
+- Actualizar tests de rutas documentadas si se añaden rutas nuevas.
+
+## Riesgos y mitigación (bloque 13)
+
+- **Webhook expuesto** → path secreto + validación de `chat_id`; sin esto, riesgo de abuso.  
+- **Next.js cold start / timeout** en webhook → handler liviano (solo DB + envío Telegram/SMTP en cola opcional; si el test mail es lento, responder “encolado” o aumentar timeout según hosting).  
+- **Informe cuando el job aborta antes del envío** → definir si un `catch` global envía Telegram con “fallo crítico” usando credenciales ya cargadas (cuidado con no reentrar en errores).
+
+## Criterios de aceptación (bloque 13)
+
+- Tras cada ejecución programada a las 9 (misma configuración actual de cron + TZ), **cada chat Telegram activo** recibe **un** informe de estado (posiblemente varios mensajes si es muy largo).  
+- Con novedades y email enviado: informe con **totales y desglose** por perfil y por relevancia IA.  
+- Sin novedades: informe **explícito** de que no hubo email por falta de novedades.  
+- Con fallo de email (o ambos canales): informe con **causa** legible.  
+- Los cuatro comandos funcionan desde un chat autorizado; chats no autorizados no reciben respuesta útil.
+
+---
+
+# Bloque 14 — Status helper en la web (v1 completado en código)
+
+## Objetivo
+
+Evitar depender de **dominio público / webhook** para operaciones internas cuando el uso principal es **local**. Trasladar a la **interfaz web** lo equivalente a:
+
+- ver estado de la última corrida,
+- ver el log legible de la última ejecución,
+- ver conteos de destinatarios (activos / pausados por canal),
+- lanzar **solo** el correo de prueba SMTP.
+
+Telegram se mantiene como **canal de informe automático** diario alineado al cron; el **Status helper** es la consola visual de operación.
+
+## Alcance v1 (acordado)
+
+**Incluye**
+
+- Botón **Status helper** en la home, junto a **Gestionar alertas**.
+- **Modal propio** (no mezclar con el modal largo de gestión de alertas).
+- Al abrir el modal:
+  - **Estado** resumido: datos de `alert_job_ops_state` (`loadAlertJobOpsState`) + campos clave del `last_summary_json` (runId, dispatch, totales, IA si aplica).
+  - **Último log**: `last_log_text` en bloque con scroll (equivalente a `/last_run`).
+  - **Destinatarios**: totales email/telegram activos y pausados vía `getNotificationRecipientCounts()` (equivalente a `/count_users`).
+- Acción **Enviar correo de prueba**: botón que llama a `sendAlertsChannelTestEmail()` y muestra mensaje de éxito/error (equivalente a `/test_mail`).
+- Botón **Actualizar** para volver a cargar estado/log/conteos sin recargar toda la página.
+
+**No incluye en v1**
+
+- Botón **Ejecutar job ahora** desde la UI (queda para **v2** junto con refresco post-ejecución y quizá indicadores más ricos).
+- Autenticación de usuarios (sigue siendo app interna sin login; riesgo asumido como hoy en el resto de APIs).
+
+## Diseño técnico propuesto
+
+### Backend (BFF)
+
+- **`GET /api/ops/status-helper`**  
+  Respuesta JSON agregada: `{ ok, data: { opsState, recipientCounts } }` donde `opsState` mapea `AlertJobOpsStored` y `recipientCounts` el resultado de `getNotificationRecipientCounts()`.
+
+- **`POST /api/ops/status-helper/test-mail`**  
+  Llama a `sendAlertsChannelTestEmail()` y devuelve `{ ok, status, message }`.
+
+**Por qué un GET agregado:** una sola petición al abrir el modal simplifica estado de carga y reduce parpadeos.
+
+**Seguridad mínima (fase interna):** mismo modelo que otras rutas internas; si más adelante se expone a red amplia, valorar cabecera compartida tipo `x-alerts-secret` o auth interna (documentar en README al implementar).
+
+### Frontend
+
+- `page.tsx`: estado `statusHelperOpen`, fetch al abrir, UI en modal reutilizando estilos existentes (`modalOverlay`, `modalCard`, etc.) para coherencia visual.
+- Texto del botón: **Status helper** (o traducción acordada).
+
+### Reutilización de código
+
+- Reutilizar `alert-job-ops-state.ts`, `notification-recipients.ts`, `mailer.ts`.
+- Opcional en una fase posterior: extraer texto formateado compartido entre webhook `telegram-command-handler.ts` y la UI para no duplicar strings (no obligatorio en v1).
+
+## Criterios de aceptación (v1)
+
+- Desde la home se abre el modal y se ve **estado + log + conteos** coherentes con lo que ya persiste el job.
+- El correo de prueba se dispara desde el botón y el usuario ve el resultado en pantalla.
+- Sin regresiones en el flujo actual de alertas ni en Telegram automático.
+
+## v2 (planificado, no en v1)
+
+- Botón **Ejecutar job ahora** (POST a `/api/alerts/weekly/run` o endpoint dedicado) + refresco automático del Status helper tras la corrida.
+- Mejoras UX: chips de estado, timestamps relativos, copiar log al portapapeles.
 
 ## Recomendaciones pedagógicas (como vamos a trabajar)
 

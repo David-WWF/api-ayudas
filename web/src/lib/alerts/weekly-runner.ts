@@ -6,8 +6,13 @@ import { searchGrants } from "@/lib/bdns/client";
 import { analyzeGrants, isAiConfigured, type GrantAiResult } from "@/lib/ai/grant-analyzer";
 import { enrichGrantsWithEligibility } from "@/lib/bdns/detail";
 import { sendWeeklyDigestEmail } from "./mailer";
-import { sendWeeklyDigestTelegram } from "./telegram";
+import {
+  sendAlertStatusTelegram,
+  type AlertStatusProfileLine,
+  type AlertStatusTelegramInput,
+} from "./telegram";
 import { ensureNotificationRecipientsTable } from "./notification-recipients";
+import { ensureAlertJobOpsStateTable, saveAlertJobOpsState } from "./alert-job-ops-state";
 import { computeAlertsChannelOuterTimeoutMs } from "./channel-retry";
 import {
   getAlertsTimeZone,
@@ -74,8 +79,75 @@ function mapProfileRow(row: Record<string, unknown>): AlertProfile {
   };
 }
 
+function buildAlertStatusProfileLines(
+  digestProfiles: Array<{ profileName: string; newItems: GrantItem[] }>,
+  profileSummaries: ProfileRunSummary[],
+  aiMap: Map<string, GrantAiResult>
+): AlertStatusProfileLine[] {
+  if (digestProfiles.length > 0) {
+    return digestProfiles.map((dp) => {
+      let alta = 0;
+      let media = 0;
+      let baja = 0;
+      let sinClasificar = 0;
+      for (const item of dp.newItems) {
+        const r = aiMap.get(item.id)?.relevance?.toLowerCase().trim();
+        if (r === "alta") alta += 1;
+        else if (r === "media") media += 1;
+        else if (r === "baja") baja += 1;
+        else sinClasificar += 1;
+      }
+      return {
+        profileName: dp.profileName,
+        newItemsCount: dp.newItems.length,
+        alta,
+        media,
+        baja,
+        sinClasificar,
+      };
+    });
+  }
+  return profileSummaries.map((p) => ({
+    profileName: p.profileName,
+    newItemsCount: p.newItemsCount,
+    alta: 0,
+    media: 0,
+    baja: 0,
+    sinClasificar: 0,
+  }));
+}
+
+function buildOpsLogText(input: {
+  runId: string;
+  runAtIso: string;
+  dispatchStatus: string;
+  emailStatus: string;
+  emailMessage: string;
+  telegramStatus: string;
+  telegramMessage: string;
+  profileSummaries: ProfileRunSummary[];
+  aiAnalysis: WeeklyRunResult["aiAnalysis"];
+  skippedCron: number;
+  activeProfilesCount: number;
+}): string {
+  const parts: string[] = [];
+  parts.push(`[${input.runAtIso}] runId=${input.runId}`);
+  parts.push(`dispatch=${input.dispatchStatus} email=${input.emailStatus} telegram=${input.telegramStatus}`);
+  parts.push(`emailMsg: ${input.emailMessage}`);
+  parts.push(`telegramMsg: ${input.telegramMessage}`);
+  parts.push(`perfiles_activos_bd=${input.activeProfilesCount} omitidos_cron=${input.skippedCron}`);
+  for (const p of input.profileSummaries) {
+    parts.push(`  - ${p.profileName}: nuevas=${p.newItemsCount} fetch=${p.totalFetched}`);
+  }
+  parts.push(
+    `IA: ran=${input.aiAnalysis.ran} model=${input.aiAnalysis.model ?? ""} err=${input.aiAnalysis.error ?? ""}`
+  );
+  return parts.join("\n");
+}
+
 async function ensureTables() {
   await ensureNotificationRecipientsTable();
+  await ensureAlertJobOpsStateTable();
 
   // Tabla de perfiles de alertas configurables.
   // schedule_cron: si ALERTS_RESPECT_PROFILE_CRON=true, el runner solo procesa el perfil cuando
@@ -389,31 +461,69 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
     let telegramMessage = "No ejecutado.";
     let dispatchStatus: "sent_both" | "sent_partial" | "error_both" | "no_news" = "no_news";
 
+    const runAtIso = new Date().toISOString();
+    const profileLines = buildAlertStatusProfileLines(digestProfiles, profileSummaries, aiMap);
+    const totalNewItems = digestProfiles.reduce((acc, p) => acc + p.newItems.length, 0);
+    const noActiveProfiles = profiles.length === 0;
+    const allProfilesSkippedCron =
+      profiles.length > 0 && respectCron && profileSummaries.length === 0 && skippedCron > 0;
+
+    const timeoutMs = computeAlertsChannelOuterTimeoutMs(getTimeoutMs());
+
+    const baseStatusInput = (): AlertStatusTelegramInput => ({
+      runId,
+      runAtIso,
+      dispatchStatus: "no_news",
+      emailStatus,
+      emailMessage,
+      totalNewItems,
+      profileLines,
+      profilesSkippedCron: skippedCron,
+      evaluatedProfiles: profileSummaries.length,
+      configuredProfileCount: profiles.length,
+      allProfilesSkippedCron,
+      noActiveProfiles,
+      aiRan: aiInfo.ran,
+      aiModel: aiInfo.model,
+      aiError: aiInfo.error,
+    });
+
     if (digestProfiles.length === 0) {
-      // Sin novedades: corrida valida, no se envian canales.
+      // Sin digest por correo: igualmente informe de estado por Telegram.
       emailStatus = "sent";
-      telegramStatus = "sent";
-      emailMessage = "Sin novedades: no se requiere envio.";
-      telegramMessage = "Sin novedades: no se requiere envio.";
-      dispatchStatus = "no_news";
+      emailMessage = "Sin novedades: no se requiere envío de correo.";
+      const telegramResult = await withTimeout(
+        sendAlertStatusTelegram({
+          ...baseStatusInput(),
+          dispatchStatus: "no_news",
+        }),
+        timeoutMs,
+        "telegram_status"
+      );
+      telegramStatus = telegramResult.status === "sent" ? "sent" : "error";
+      telegramMessage = telegramResult.message;
+      dispatchStatus = telegramStatus === "error" ? "sent_partial" : "no_news";
     } else {
       const payload = {
         runId,
-        runAtIso: new Date().toISOString(),
+        runAtIso,
         profiles: digestProfiles,
         aiMap,
       };
 
-      const timeoutMs = computeAlertsChannelOuterTimeoutMs(getTimeoutMs());
-
-      // 6) Envia ambos canales en paralelo con timeout por canal (incluye reintentos).
-      const [emailResult, telegramResult] = await Promise.all([
-        withTimeout(sendWeeklyDigestEmail(payload), timeoutMs, "email"),
-        withTimeout(sendWeeklyDigestTelegram(payload), timeoutMs, "telegram"),
-      ]);
-
+      // 6) Correo con digest; informe corto a Telegram después (incluye resultado del email).
+      const emailResult = await withTimeout(sendWeeklyDigestEmail(payload), timeoutMs, "email");
       emailStatus = emailResult.status === "sent" ? "sent" : "error";
       emailMessage = emailResult.message;
+
+      const telegramResult = await withTimeout(
+        sendAlertStatusTelegram({
+          ...baseStatusInput(),
+          dispatchStatus: emailStatus === "sent" ? "sent_both" : "sent_partial",
+        }),
+        timeoutMs,
+        "telegram_status"
+      );
       telegramStatus = telegramResult.status === "sent" ? "sent" : "error";
       telegramMessage = telegramResult.message;
 
@@ -462,7 +572,51 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
 
     const processedCount = profileSummaries.length;
     const profilesWithNews = profileSummaries.filter((p) => p.newItemsCount > 0).length;
-    const totalNewItems = profileSummaries.reduce((acc, p) => acc + p.newItemsCount, 0);
+    const totalNewItemsAgg = profileSummaries.reduce((acc, p) => acc + p.newItemsCount, 0);
+
+    try {
+      await saveAlertJobOpsState({
+        lastRunId: runId,
+        lastFinishedAt: new Date(),
+        lastDispatchStatus: dispatchStatus,
+        lastEmailStatus: emailStatus,
+        lastEmailMessage: emailMessage,
+        lastTelegramStatus: telegramStatus,
+        lastTelegramMessage: telegramMessage,
+        lastSummaryJson: {
+          runId,
+          runAtIso,
+          dispatchStatus,
+          totalNewItems: totalNewItemsAgg,
+          profilesSkippedCron: skippedCron,
+          processedProfiles: processedCount,
+          profilesWithNews,
+          aiAnalysis: aiInfo,
+          profileSummaries,
+        },
+        lastLogText: buildOpsLogText({
+          runId,
+          runAtIso,
+          dispatchStatus,
+          emailStatus,
+          emailMessage,
+          telegramStatus,
+          telegramMessage,
+          profileSummaries,
+          aiAnalysis: aiInfo,
+          skippedCron,
+          activeProfilesCount: profiles.length,
+        }),
+      });
+    } catch (persistErr) {
+      console.error(
+        JSON.stringify({
+          event: "weekly_run_ops_state_persist_error",
+          runId,
+          error: persistErr instanceof Error ? persistErr.message : "unknown",
+        })
+      );
+    }
 
     console.info(
       JSON.stringify({
@@ -472,7 +626,7 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
         processedProfiles: processedCount,
         profilesSkippedCron: skippedCron,
         profilesWithNews,
-        totalNewItems,
+        totalNewItems: totalNewItemsAgg,
         dispatchStatus,
         emailStatus,
         telegramStatus,
@@ -484,7 +638,7 @@ export async function runWeeklyAlerts(): Promise<WeeklyRunResult> {
       processedProfiles: processedCount,
       profilesSkippedCron: skippedCron,
       profilesWithNews,
-      totalNewItems,
+      totalNewItems: totalNewItemsAgg,
       aiAnalysis: aiInfo,
       emailStatus,
       emailMessage,
