@@ -220,6 +220,7 @@ export default function Home() {
   const [statusHelperRefreshedAt, setStatusHelperRefreshedAt] = useState<string | null>(null);
   const [statusHelperRunJobLoading, setStatusHelperRunJobLoading] = useState(false);
   const [statusHelperRunJobMsg, setStatusHelperRunJobMsg] = useState<string | null>(null);
+  const [statusHelperConfirmRunOpen, setStatusHelperConfirmRunOpen] = useState(false);
   const [weeklyRunSecretUi, setWeeklyRunSecretUi] = useState("");
 
   // Form nuevo perfil
@@ -576,7 +577,12 @@ export default function Home() {
     }
   }
 
+  function closeStatusHelperRunConfirm() {
+    setStatusHelperConfirmRunOpen(false);
+  }
+
   async function runStatusHelperWeeklyJob() {
+    setStatusHelperConfirmRunOpen(false);
     setStatusHelperRunJobLoading(true);
     setStatusHelperRunJobMsg(null);
     const needsSecret = Boolean(statusHelperData?.requiresWeeklyRunSecret);
@@ -1054,6 +1060,7 @@ export default function Home() {
                   setStatusHelperOpen(true);
                   setStatusHelperTestMailMsg(null);
                   setStatusHelperRunJobMsg(null);
+                  setStatusHelperConfirmRunOpen(false);
                   setStatusHelperRefreshedAt(null);
                   void loadStatusHelper();
                 }}
@@ -1774,6 +1781,7 @@ export default function Home() {
               setStatusHelperOpen(false);
               setStatusHelperTestMailMsg(null);
               setStatusHelperRunJobMsg(null);
+              setStatusHelperConfirmRunOpen(false);
             }}
           >
             <div className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
@@ -1784,6 +1792,7 @@ export default function Home() {
                   setStatusHelperOpen(false);
                   setStatusHelperTestMailMsg(null);
                   setStatusHelperRunJobMsg(null);
+                  setStatusHelperConfirmRunOpen(false);
                 }}
               >
                 ×
@@ -1832,7 +1841,7 @@ export default function Home() {
                     !statusHelperData ||
                     (statusHelperData.requiresWeeklyRunSecret && !weeklyRunSecretUi.trim())
                   }
-                  onClick={() => void runStatusHelperWeeklyJob()}
+                  onClick={() => setStatusHelperConfirmRunOpen(true)}
                 >
                   {statusHelperRunJobLoading ? "Ejecutando job…" : "Ejecutar job ahora"}
                 </button>
@@ -1963,7 +1972,14 @@ export default function Home() {
                             <code>{r.address}</code>
                           </p>
                           <p className={styles.modalHint}>
-                            Estado: {r.enabled ? "Activo" : "Pausado"}
+                            Estado:{" "}
+                            <span
+                              className={
+                                r.enabled ? styles.recipientStatusActive : styles.recipientStatusPaused
+                              }
+                            >
+                              {r.enabled ? "Activo" : "Pausado"}
+                            </span>
                           </p>
                         </li>
                       ))}
@@ -1989,6 +2005,59 @@ export default function Home() {
                 </>
               ) : null}
             </div>
+
+            {statusHelperConfirmRunOpen ? (
+              <div className={styles.modalOverlay} onClick={closeStatusHelperRunConfirm}>
+                <div className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    className={styles.modalClose}
+                    onClick={closeStatusHelperRunConfirm}
+                  >
+                    ×
+                  </button>
+
+                  <h2 className={styles.modalTitle}>Confirmar ejecución</h2>
+                  <p className={styles.modalHint}>
+                    Vas a lanzar el job completo de alertas manualmente. Esto puede consultar BDNS,
+                    actualizar historial y enviar notificaciones por email y Telegram si corresponde.
+                  </p>
+
+                  <hr className={styles.sectionDivider} />
+
+                  <div className={styles.profileCard}>
+                    <p className={styles.profileCardTitle}>¿Seguro que quieres continuar?</p>
+                    <p>
+                      Usa esta acción cuando quieras forzar una ejecución fuera del cron habitual o
+                      validar el sistema de extremo a extremo.
+                    </p>
+                    <p className={styles.modalHint}>
+                      Si no hay novedades, no se enviará el digest por correo, pero sí puede
+                      generarse el informe operativo de Telegram.
+                    </p>
+                  </div>
+
+                  <div className={`${styles.actions} ${styles.modalActions}`}>
+                    <button
+                      type="button"
+                      className={styles.secondaryButton}
+                      disabled={statusHelperRunJobLoading}
+                      onClick={closeStatusHelperRunConfirm}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.warningButton}
+                      disabled={statusHelperRunJobLoading}
+                      onClick={() => void runStatusHelperWeeklyJob()}
+                    >
+                      {statusHelperRunJobLoading ? "Ejecutando job…" : "Sí, ejecutar ahora"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </div>
         )}
       </main>
